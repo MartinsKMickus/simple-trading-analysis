@@ -1,65 +1,11 @@
-import os
 import io
 import time
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from dateutil.parser import parse
 
 import constants
-
-DATA_DIR = constants.DATA_DIR
-INTERVAL = constants.INTERVAL
-SYMBOLS = constants.SYMBOLS
-
-# Create directory if it doesn't exist
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
-
-# Saves symbol data to a file.
-# If file exists, then it will be updated with newest data.
-def save_data_to_csv(symbol, data):
-    # Remove empty values
-    data.dropna(how='all', inplace=True)
-
-    if symbol == None:
-        file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        data.to_csv(file_path, index=False)
-        return
-
-    file_path = os.path.join(DATA_DIR, f'{symbol}_{INTERVAL}.csv')
-    try:
-        # Read in the existing data (if any) from the file
-        existing_data = pd.read_csv(file_path)
-
-        # Concatenate the new data with the existing data
-        all_data = pd.concat([data, existing_data], ignore_index=True)
-
-        # Write all the data back to the file in append mode
-        all_data.to_csv(file_path, index=False)
-    except:
-        data.to_csv(file_path, index=False)
-
-
-# Loads local data of a symbol and returns DataFrame.
-# If there is no data then None is returned.
-def load_existing_data(symbol):
-    data = None
-    if symbol == None:
-        file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        if os.path.exists(file_path):
-            data = pd.read_csv(file_path)
-            # Remove empty values
-            data.dropna(how='all', inplace=True)
-    else:
-        file_path = os.path.join(DATA_DIR, f'{symbol}_{INTERVAL}.csv')
-        if os.path.exists(file_path):
-            data = pd.read_csv(file_path)
-            # Remove empty values
-            data.dropna(how='all', inplace=True)
-    return data
 
 
 # Alpha Vantage API call to get list of stocks and ETFs
@@ -75,7 +21,7 @@ def alpha_vantage_list():
 # Returns DataFrame of symbol with interval 1, 5, 15, 30 or 60 minutes from given date.
 # Doesn't look past 2 years from now
 # wait_between_calls waits before doing next API call if there is limitation
-def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_calls = 12):
+def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_calls=12):
     if interval not in ("1min", "5min", "15min", "30min", "60min"):
         raise Exception(
             "Wrong function used, supported only 1min, 5min, 15min, 30min, 60min")
@@ -129,25 +75,3 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
             data = data[(data['time'] > from_date)]
 
     return data
-
-
-# Download newest data for symbol
-def download_newest_data(symbol):
-    # Get local data and check what has to be downloaded
-    existing_data = load_existing_data(symbol)
-    if existing_data is not None and not existing_data.empty:
-        last_date = pd.to_datetime(existing_data['time'].max())
-    else:
-        last_date = None
-
-    # Download and save
-    data = alpha_vantage_intraday_extended(symbol, INTERVAL, last_date)
-    if isinstance(data, pd.DataFrame):
-        save_data_to_csv(symbol, data)
-
-
-for symbol in SYMBOLS:
-    try:
-        download_newest_data(symbol)
-    except Exception as e:
-        print(f'Error downloading data for {symbol}: {e}')
