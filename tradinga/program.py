@@ -21,6 +21,14 @@ if not os.path.exists(DATA_DIR):
 # Saves symbol data to a file.
 # If file exists, then it will be updated with newest data.
 def save_data_to_csv(symbol, data):
+    # Remove empty values
+    data.dropna(how='all', inplace=True)
+
+    if symbol == None:
+        file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
+        data.to_csv(file_path, index=False)
+        return
+
     file_path = os.path.join(DATA_DIR, f'{symbol}_{INTERVAL}.csv')
     try:
         # Read in the existing data (if any) from the file
@@ -38,10 +46,29 @@ def save_data_to_csv(symbol, data):
 # Loads local data of a symbol and returns DataFrame.
 # If there is no data then None is returned.
 def load_existing_data(symbol):
-    file_path = os.path.join(DATA_DIR, f'{symbol}_{INTERVAL}.csv')
-    if os.path.exists(file_path):
-        return pd.read_csv(file_path)
-    return None
+    data = None
+    if symbol == None:
+        file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
+        if os.path.exists(file_path):
+            data = pd.read_csv(file_path)
+            # Remove empty values
+            data.dropna(how='all', inplace=True)
+    else:
+        file_path = os.path.join(DATA_DIR, f'{symbol}_{INTERVAL}.csv')
+        if os.path.exists(file_path):
+            data = pd.read_csv(file_path)
+            # Remove empty values
+            data.dropna(how='all', inplace=True)
+    return data
+
+
+# Alpha Vantage API call to get list of stocks and ETFs
+# Returns DataFrame
+def alpha_vantage_list():
+    url = f'https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={constants.ALPHA_VANTAGE_API_KEY}'
+    response = requests.get(url)
+    response.raise_for_status()
+    return pd.read_csv(io.StringIO(response.text))
 
 
 # Alpha Vantage API call for intraday extended function.
@@ -61,7 +88,11 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
         delta = relativedelta(datetime.now(), from_date)
         years = delta.years
         months = delta.months
+        days = delta.days
         if years == 0 and months == 0:
+            if days < 20:
+                print(f"{symbol} is already up to date")
+                return
             months = 1
             years = 1
 
@@ -74,20 +105,28 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
             print(f'Downloading data for {symbol} at {string}')
             url = f'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY_EXTENDED&symbol={symbol}&interval={interval}&slice=year{year}month{month}&apikey={constants.ALPHA_VANTAGE_API_KEY}'
 
-            response = requests.get(url)
-            response.raise_for_status()
+            succesful = False
+            while not succesful:
+                try:
+                    response = requests.get(url)
+                    response.raise_for_status()
 
-            time.sleep(wait_between_calls)
+                    time.sleep(wait_between_calls)
 
-            if isinstance(data, pd.DataFrame):
-                data = pd.concat(
-                    [pd.read_csv(io.StringIO(response.text)), data], ignore_index=True)
-            else:
-                data = pd.read_csv(io.StringIO(response.text))
+                    if isinstance(data, pd.DataFrame):
+                        data = pd.concat(
+                            [pd.read_csv(io.StringIO(response.text)), data], ignore_index=True)
+                    else:
+                        data = pd.read_csv(io.StringIO(response.text))
+                    succesful = True
+                except Exception as e:
+                    print(f"For {symbol} there was error: {e}")
+                    print("Retrying...")
 
-    data['time'] = pd.to_datetime(data['time'])
-    if from_date:
-        data = data[(data['time'] > from_date)]
+    if isinstance(data, pd.DataFrame):
+        data['time'] = pd.to_datetime(data['time'])
+        if from_date:
+            data = data[(data['time'] > from_date)]
 
     return data
 
