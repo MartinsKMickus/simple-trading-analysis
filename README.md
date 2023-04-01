@@ -13,3 +13,5 @@ Stock/Crypto AI Machine Learning
 
 ### Arguments
 - `update` Update local data
+- `ai` AI mode
+  - `-s/--single SIMBOL` Single symbol analysis

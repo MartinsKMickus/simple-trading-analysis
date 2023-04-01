@@ -10,17 +10,20 @@ from api_helper import alpha_vantage_list
 parser = argparse.ArgumentParser(description='Simple Trading Analysis')
 action_parser = parser.add_subparsers(dest='action')
 ap_update = action_parser.add_parser('update', help='Update local data')
-#ap_list = action_parser.add_parser('list', help='List symbols')
+ap_ai = action_parser.add_parser('ai', help='Start AI')
+# ap_list = action_parser.add_parser('list', help='List symbols')
 
 ap_update.add_argument('-r', action='store_true',
                        help='Update in random order')
-#ap_list.add_argument('-o', action='store_true', help='Get online data')
+ap_ai.add_argument('-s', '--single', dest="SYMBOL",
+                   help='Single symbol analysis')
+# ap_list.add_argument('-o', action='store_true', help='Get online data')
 
 args = parser.parse_args()
 
 
 if args.action == 'update':
-    print("Update")
+    print("Update Started")
     symbols = load_existing_data(None, constants.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         print("Empty symbols file. Trying to download it now.")
@@ -30,6 +33,11 @@ if args.action == 'update':
         symbols = symbols.sample(frac=1).reset_index(drop=True)
     for symbol in symbols['symbol']:
         download_newest_data(symbol, constants.INTERVAL)
+elif args.action == 'ai':
+    print("AI Activated")
+    if args.single:
+        print(f"Single mode: {args.single}")
+        # TODO: Implement single symbol analysis
 # elif args.action == 'list':
 #     if args.o:
 #         print("Online mode")
