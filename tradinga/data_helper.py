@@ -5,11 +5,14 @@ import constants
 from api_helper import alpha_vantage_intraday_extended
 
 DATA_DIR = constants.DATA_DIR
+STOCK_DIR = constants.STOCK_DIR
 
 
 # Create directory if it doesn't exist
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
+if not os.path.exists(STOCK_DIR):
+    os.makedirs(STOCK_DIR)
 
 
 # Saves symbol data to a file.
@@ -24,7 +27,7 @@ def save_data_to_csv(symbol: str, data: pd.DataFrame, interval: str):
         data.to_csv(file_path, index=False)
         return
 
-    file_path = os.path.join(DATA_DIR, f'{symbol}_{interval}.csv')
+    file_path = os.path.join(STOCK_DIR, f'{symbol}_{interval}.csv')
     try:
         # Read in the existing data (if any) from the file
         existing_data = pd.read_csv(file_path)
@@ -49,7 +52,7 @@ def load_existing_data(symbol: str, interval: str):
             # Remove empty values
             data.dropna(how='all', inplace=True)
     else:
-        file_path = os.path.join(DATA_DIR, f'{symbol}_{interval}.csv')
+        file_path = os.path.join(STOCK_DIR, f'{symbol}_{interval}.csv')
         if os.path.exists(file_path):
             data = pd.read_csv(file_path)
             # Remove empty values
