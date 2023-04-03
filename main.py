@@ -33,7 +33,7 @@ if args.action == 'update':
         sys.exit(0)
     symbols = load_existing_data(None, constants.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
-        from api_helper import alpha_vantage_list
+        from tradinga.api_helper import alpha_vantage_list
         print("Empty symbols file. Trying to download it now.")
         symbols = alpha_vantage_list()
         save_data_to_csv(symbol=None, data=symbols, interval=None)
