@@ -2,9 +2,9 @@ import argparse
 import sys
 
 import pandas as pd
-import constants
+import tradinga.constants as constants
 
-from data_helper import download_newest_data, load_existing_data, save_data_to_csv
+from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
 
 
 parser = argparse.ArgumentParser(description='Simple Trading Analysis')
@@ -44,7 +44,7 @@ if args.action == 'update':
 elif args.action == 'ai':
     print("AI Activated")
     if args.symbol:
-        from ai_helper import predict_simple_next_values
+        from tradinga.ai_helper import predict_simple_next_values
         from matplotlib import pyplot as plt
         print(f"Single mode for: {args.symbol}")
         data = load_existing_data(args.symbol, constants.INTERVAL)

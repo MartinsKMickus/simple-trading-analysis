@@ -11,7 +11,7 @@ Stock/Crypto AI Machine Learning
   - `INTERVAL` Default trading interval (1min, 5min, 15min, 30min, 60min)
 
 ## How to run:
-- `python tradinga` Right now this command doesn't do anything. Arguments have to be added.
+- `python main.py` Right now this command doesn't do anything. Arguments have to be added.
 
 ### Arguments
 - `update` Update local data
@@ -19,3 +19,4 @@ Stock/Crypto AI Machine Learning
   - `-s/--single SIMBOL` Update data for single symbol
 - `ai` AI mode
   - `-s/--single SIMBOL` Single symbol analysis
+  - `-l/--last LAST_VALUES` How much last data values to use for prediction

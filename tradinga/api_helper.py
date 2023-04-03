@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-import constants
+import tradinga.constants as constants
 
 
 # Alpha Vantage API call to get list of stocks and ETFs

@@ -1,8 +1,8 @@
 import os
 import pandas as pd
 
-import constants
-from api_helper import alpha_vantage_intraday_extended
+import tradinga.constants as constants
+from tradinga.api_helper import alpha_vantage_intraday_extended
 
 DATA_DIR = constants.DATA_DIR
 STOCK_DIR = constants.STOCK_DIR
