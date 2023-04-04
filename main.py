@@ -1,7 +1,9 @@
 import argparse
+import datetime
 import sys
 
 import pandas as pd
+from tradinga.ai_manager import make_few_models
 import tradinga.constants as constants
 
 from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
@@ -50,11 +52,14 @@ elif args.action == 'ai':
         data = load_existing_data(args.symbol, constants.INTERVAL)
         if not isinstance(data, pd.DataFrame):
             sys.exit(f'No data for {args.symbol}. Please update this data first!')
-        if args.last:
-            plt.plot(predict_simple_next_values(data=data,look_back=args.last))
-        else:
-            plt.plot(predict_simple_next_values(data=data))
-        plt.show()
+        data['time'] = pd.to_datetime(data['time'])
+        data.sort_values('time', inplace=True)
+
+        test_data = data.copy()
+        test_data = test_data[(test_data['time'] < datetime.datetime.now()) & (test_data['time'] > datetime.datetime(2023, 3, 1))]
+        data = data[(data['time'] < datetime.datetime(2023, 3, 1))]
+        
+        make_few_models(data, test_data, "First_test")
 # elif args.action == 'list':
 #     if args.o:
 #         print("Online mode")

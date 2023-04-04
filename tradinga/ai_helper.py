@@ -20,7 +20,9 @@ def model_v1(i_shape, output = 1):
     model.add(tf.keras.layers.LSTM(units=64))
     model.add(tf.keras.layers.Dense(32))
     model.add(tf.keras.layers.Dropout(0.5))
-    model.add(tf.keras.layers.Dense(output))
+    model.add(tf.keras.layers.Dense(units=output))
+    model.compile(optimizer='adam',
+                    loss='mean_squared_error')
     return model
     
 def model_v2(i_shape, output = 1):
@@ -28,10 +30,57 @@ def model_v2(i_shape, output = 1):
     model.add(tf.keras.layers.LSTM(units=128, input_shape=(i_shape, 1)))
     model.add(tf.keras.layers.Dropout(0.2))
     model.add(tf.keras.layers.Dense(units=output))
+    model.compile(optimizer='adam',
+                    loss='mean_squared_error')
     return model
 
 
-def train_simple_model(data: pd.DataFrame, look_back: int = 100, epochs: int = 50):
+def model_v3(i_shape, first_units = 200, dense_after = 50, output = 1):
+    model = tf.keras.models.Sequential()
+    model.add(tf.keras.layers.LSTM(units=first_units, return_sequences=True, input_shape=(i_shape, 1)))
+    model.add(tf.keras.layers.LSTM(units=64))
+    model.add(tf.keras.layers.Dense(dense_after))
+    #model.add(tf.keras.layers.Dropout(0.7))
+    #model.add(tf.keras.layers.Reshape((dense_after, 1)))
+    #model.add(tf.keras.layers.LSTM(units=10))
+    model.add(tf.keras.layers.Dropout(0.5))
+    model.add(tf.keras.layers.Dense(units=output))
+    model.compile(optimizer='adam',
+                    loss='mean_squared_error', metrics=['accuracy'])
+    return model
+
+
+def get_evaluation(model: tf.keras.models.Sequential, x_test: np.array, y_test: np.array):
+    # TODO: Add description
+    loss, accuracy = model.evaluate(x_test, y_test, verbose=0)
+    return accuracy
+
+
+def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: np.array, epochs: int, batch_size: int = None, x_test: np.array = None, y_test: np.array = None):
+    """
+    
+    Train model
+    """
+    # TODO: Add description
+    log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    
+    if x_test != None and y_test != None:
+        model.fit(x_train,
+                    y_train,
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    validation_data=(x_test, y_test),
+                    callbacks=[tensorboard_callback])
+    else:
+        model.fit(x_train,
+                    y_train,
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    callbacks=[tensorboard_callback])
+
+
+def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50):
     """
     Train simple model on some data
 
@@ -64,25 +113,18 @@ def train_simple_model(data: pd.DataFrame, look_back: int = 100, epochs: int = 5
         model = tf.keras.models.load_model(
             f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
     else:
-        model = model_v2(x_train.shape[1])
+        model = model_v3(x_train.shape[1])
         model.summary()
-        model.compile(optimizer='adam',
-                    loss='mean_squared_error')
 
-        # TODO: Implement this:
-        log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+        train_model(model,x_train,y_train,epochs)
         
-        model.fit(x_train,
-                  y_train,
-                  epochs=epochs)
         model.save(
             f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}')
         
     return model
 
 
-def train_advanced_model(data: pd.DataFrame, look_back: int = 100, predict: int = 10, epochs: int = 50):
+def get_advanced_model(data: pd.DataFrame, look_back: int = 100, predict: int = 10, epochs: int = 50):
     """
     Train advanced model on some data
 
@@ -107,8 +149,11 @@ def train_advanced_model(data: pd.DataFrame, look_back: int = 100, predict: int 
     y_train = []
 
     for i in range(look_back, len(scaled_data) - predict):
-        x_train.append(scaled_data[i-look_back:i, 0]) # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 0
-        y_train.append(scaled_data[i:i+ predict, 0])  # To predict next value for training
+        x_train.append(scaled_data[i-look_back:i, 0])
+        if predict == 1:
+            y_train.append(scaled_data[i, 0])
+        else:
+            y_train.append(scaled_data[i:i+ predict, 0])
 
     x_train, y_train = np.array(x_train), np.array(y_train)
     x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
@@ -119,12 +164,9 @@ def train_advanced_model(data: pd.DataFrame, look_back: int = 100, predict: int 
     else:
         model = model_v2(x_train.shape[1], predict)
         model.summary()
-        model.compile(optimizer='adam',
-                    loss='mean_squared_error')
         
-        model.fit(x_train,
-                  y_train,
-                  epochs=epochs)
+        train_model(model,x_train,y_train,epochs)
+
         model.save(
             f'{constants.AI_DIR}/{ADVANCED_MODEL_NAME}_{look_back}_{predict}')
         
@@ -150,7 +192,7 @@ def predict_simple_next_values(data: pd.DataFrame, look_back: int = 100, next: i
     else:
         if not query_yes_no("Model for such configuration doesn't exist. Create?", default="no"):
             return
-        model = train_simple_model(data=data, look_back=look_back)
+        model = get_simple_model(data=data, look_back=look_back)
         
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
@@ -195,7 +237,7 @@ def predict_advanced_next_values(data: pd.DataFrame, look_back: int = 100, predi
     else:
         if not query_yes_no("Model for such configuration doesn't exist. Create?", default="no"):
             return
-        model = train_advanced_model(data=data, look_back=look_back, predict=predict)
+        model = get_advanced_model(data=data, look_back=look_back, predict=predict)
         
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
@@ -203,6 +245,73 @@ def predict_advanced_next_values(data: pd.DataFrame, look_back: int = 100, predi
     # get the last 'look_back' values from the dataset to use as initial input
     initial_input = scaled_data[-look_back:]
     x_test = np.array([initial_input])
+
+    # predict future values
+    predicted_values = model.predict(x_test)
+
+    # invert scaling on predictions to get actual prices
+    predictions = scaler.inverse_transform(
+        np.array(predicted_values).reshape(-1, 1))
+
+    return predictions
+
+
+def test_simple_model(data: pd.DataFrame, model: tf.keras.models.Sequential, look_back: int):
+    """
+    Test simple model
+
+    Args:
+        data (pandas.DataFrame)
+        model (tf.keras.models.Sequential)
+        look_back (int): The number of previous data points to use for prediction.
+
+    Returns:
+        Predicted data on original data
+    """
+        
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+
+    x_test = []
+    for x in range(look_back, len(scaled_data)):
+        x_test.append(scaled_data[x-look_back:x, 0])
+
+    x_test = np.array(x_test)
+    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1)) # ??????
+
+    # predict future values
+    predicted_values = model.predict(x_test)
+
+    # invert scaling on predictions to get actual prices
+    predictions = scaler.inverse_transform(
+        np.array(predicted_values).reshape(-1, 1))
+
+    return predictions
+
+
+def test_advanced_model(data: pd.DataFrame, model: tf.keras.models.Sequential, look_back: int, predict: int):
+    """
+    Test advanced model
+
+    Args:
+        data (pandas.DataFrame)
+        model (tf.keras.models.Sequential)
+        look_back (int): The number of previous data points to use for prediction.
+        predict (int): How much next values to predict.
+
+    Returns:
+        Predicted data on original data
+    """
+        
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+
+    x_test = []
+    for x in range(look_back, len(scaled_data), predict):
+        x_test.append(scaled_data[x-look_back:x, 0])
+
+    x_test = np.array(x_test)
+    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
 
     # predict future values
     predicted_values = model.predict(x_test)
