@@ -23,10 +23,14 @@ ap_update.add_argument('-r', action='store_true',
 ap_update.add_argument('-s', '--single', dest="symbol", metavar="SYMBOL",
                    help='Update single symbol')
 
-ap_ai.add_argument('-s', '--single', dest="symbol", metavar="SYMBOL",
-                   help='Single symbol analysis')
-ap_ai.add_argument('-l', '--last', dest="last", metavar="LAST_VALUES", type=int,
-                   help='How much last values to use')
+ap_ai.add_argument('-r', action='store_true',
+                       help='Learn in random order')
+ap_ai.add_argument('-p', '--path', dest="model_path", metavar="MODEL_PATH", required=True,
+                   help='Model path')
+ap_ai.add_argument('-w', '--window', dest="window", metavar="INPUT_WINDOW", type=int, required=True,
+                   help='Input window for this model')
+ap_ai.add_argument('-e', '--epochs', dest="epochs", metavar="EPOCHS", type=int, default=100,
+                   help='Training epochs. Default: 100')
 
 ap_train.add_argument('-p', '--path', dest="model_path", metavar="MODEL_PATH", required=True,
                    help='Model path')
@@ -85,24 +89,40 @@ if args.action == 'update':
     for symbol in symbols['symbol']:
         download_newest_data(symbol, constants.INTERVAL)
 elif args.action == 'ai':
-    print("Not yet implemented")
-    # if args.symbol:
-    #     from tradinga.ai_helper import predict_simple_next_values
-    #     from matplotlib import pyplot as plt
-    #     print(f"Single mode for: {args.symbol}")
-    #     data = load_existing_data(args.symbol, constants.INTERVAL)
-    #     if not isinstance(data, pd.DataFrame):
-    #         sys.exit(f'No data for {args.symbol}. Please update this data first!')
-    #     data['time'] = pd.to_datetime(data['time'])
-    #     data.sort_values('time', inplace=True)
-
-    #     test_data = data.copy()
-    #     test_data = test_data[(test_data['time'] < datetime.datetime.now()) & (test_data['time'] > datetime.datetime(2023, 3, 1))]
-    #     data = data[(data['time'] < datetime.datetime(2023, 3, 1))]
-        
-        # make_few_models(data, test_data, 10, "LB10")
-        # make_few_models(data, test_data, 30, "LB30")
-        # make_few_models(data, test_data, 50, "LB50")
+    model_path = args.model_path
+    input_window = args.window
+    epochs = args.epochs
+    symbols = load_existing_data(None, constants.INTERVAL)
+    if not isinstance(symbols, pd.DataFrame):
+        from tradinga.api_helper import alpha_vantage_list
+        print("Empty symbols file. Trying to download it now.")
+        symbols = alpha_vantage_list()
+        save_data_to_csv(symbol=None, data=symbols, interval=None)
+    if args.r:
+        symbols = symbols.sample(frac=1).reset_index(drop=True)
+    test_symbol = None
+    full_data = None
+    test_data = None
+    for symbol in symbols['symbol']:
+        if not isinstance(full_data, pd.DataFrame):
+            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+            full_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+            if len(full_data) < input_window:
+                print(f"Symbol {symbol} has not enough data points")
+                full_data = None
+                continue
+            continue
+        if not isinstance(test_data, pd.DataFrame):
+            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+            test_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+            if len(test_data) < input_window:
+                print(f"Symbol {symbol} has not enough data points")
+                test_data = None
+                continue
+        make_model(data=full_data, look_back=input_window, epochs=epochs, model_path=model_path, test_data=test_data)
+        #print(f"Testing {test_data} and training {full_data}")
+        test_data = full_data
+        full_data = None
 elif args.action == 'train':
     symbol = args.symbol
     model_path = args.model_path

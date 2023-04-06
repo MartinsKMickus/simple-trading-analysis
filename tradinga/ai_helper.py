@@ -36,13 +36,17 @@ def model_v2(i_shape, output = 1):
     return model
 
 
-def model_v3(i_shape, first_layer_units = 200, last_dropout = 0.5, output = 1):
+def model_v3(i_shape, output = 1):
     model = tf.keras.models.Sequential()
     # Capture overall trend is it going up or down (one dense layer?)
-    model.add(tf.keras.layers.LSTM(units=100, return_sequences=True, input_shape=(i_shape, 1)))
-    model.add(tf.keras.layers.LSTM(units=50))
-    #model.add(tf.keras.layers.Dropout(0.25))
-    model.add(tf.keras.layers.Dense(25))
+    model.add(tf.keras.layers.LSTM(units=64, return_sequences=True, input_shape=(i_shape, 1)))
+    #model.add(tf.keras.layers.Dense(32, input_shape=(i_shape, 1)))
+    model.add(tf.keras.layers.LSTM(units=16, return_sequences=True))
+    model.add(tf.keras.layers.Dense(64))
+    model.add(tf.keras.layers.Dropout(0.05))
+    model.add(tf.keras.layers.LSTM(units=8))
+    model.add(tf.keras.layers.Dense(16))
+    model.add(tf.keras.layers.Dense(8))
     # Process and divide information (main start layer?)
     # Throughout these proceses try to drop some of the values
     # Next trending gathering?

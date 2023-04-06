@@ -19,13 +19,17 @@ Stock/Crypto AI Machine Learning
   - `-s/--single SIMBOL` Update data for single symbol
 
 - `ai` NOT IMPLEMENTED
+  - `-r` Learn in random order
+  - `-p/--path MODEL_PATH` Model path (REQUIRED)
+  - `-w/--window INPUT_WINDOW` How much last data values to use for prediction (REQUIRED)
+  - `-e/--epochs EPOCHS` How many epochs (Default: 100)
 
 - `train` Create or retrain model
   - `-p/--path MODEL_PATH` Model path (REQUIRED)
   - `-s/--single SIMBOL` Symbol to use as train data (REQUIRED)
   - `-w/--window INPUT_WINDOW` How much last data values to use for prediction (REQUIRED)
   - `-e/--epochs EPOCHS` How many epochs (Default: 100)
-  - `--test-symbol YYYY/MM/DD` Symbol to use as validation data
+  - `--test-symbol TEST_SIMBOL` Symbol to use as validation data
 
 - `model` Check model precision metrics (plot)
   - `-p/--path MODEL_PATH` Model path (REQUIRED)
