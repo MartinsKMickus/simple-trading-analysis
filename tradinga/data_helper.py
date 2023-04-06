@@ -1,5 +1,7 @@
+import datetime
 import os
 import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
 
 import tradinga.constants as constants
 from tradinga.api_helper import alpha_vantage_intraday_extended
@@ -73,3 +75,42 @@ def download_newest_data(symbol: str, interval: str):
     data = alpha_vantage_intraday_extended(symbol, interval, last_date)
     if isinstance(data, pd.DataFrame):
         save_data_to_csv(symbol, data, interval)
+
+
+def get_data_interval(data: pd.DataFrame, date_from: datetime.datetime = None, date_to: datetime.datetime = None) -> pd.DataFrame:
+    """
+    Takes data and returns new data object at timeframe
+
+    Args:
+        data (pandas.DataFrame)
+        date_from (datetime.datetime)
+        date_to (datetime.datetime)
+
+    Returns:
+        Filtered data
+    """
+    # Convert possible string values to datetime
+    data['time'] = pd.to_datetime(data['time'])
+    filtered_data = data.copy()
+    if date_from is not None:
+        filtered_data = filtered_data[(filtered_data['time'] > date_from)]
+    if date_to is not None:
+        filtered_data = filtered_data[(filtered_data['time'] < date_to)]
+    
+    return filtered_data
+
+
+def scale_and_sort(data: pd.DataFrame):
+    """
+    Takes data and returns new scaled and sorted data object
+
+    Args:
+        data (pandas.DataFrame)
+
+    Returns:
+        Scaled and filtered data
+    """
+    data.sort_values('time', inplace=True)
+    data['time'] = pd.to_datetime(data['time'])
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    return scaler.fit_transform(data['close'].values.reshape(-1, 1))

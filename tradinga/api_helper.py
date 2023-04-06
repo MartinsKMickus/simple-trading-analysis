@@ -36,7 +36,7 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
         months = delta.months
         days = delta.days
         if years == 0 and months == 0:
-            if days < 20:
+            if days < 1:
                 print(f"{symbol} is already up to date")
                 return
             months = 1

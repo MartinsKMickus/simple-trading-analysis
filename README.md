@@ -17,6 +17,28 @@ Stock/Crypto AI Machine Learning
 - `update` Update local data
   - `-r` Update in random order
   - `-s/--single SIMBOL` Update data for single symbol
-- `ai` AI mode
-  - `-s/--single SIMBOL` Single symbol analysis
-  - `-l/--last LAST_VALUES` How much last data values to use for prediction
+
+- `ai` NOT IMPLEMENTED
+
+- `train` Create or retrain model
+  - `-p/--path MODEL_PATH` Model path (REQUIRED)
+  - `-s/--single SIMBOL` Symbol to use as train data (REQUIRED)
+  - `-w/--window INPUT_WINDOW` How much last data values to use for prediction (REQUIRED)
+  - `-e/--epochs EPOCHS` How many epochs (Default: 100)
+  - `--test-symbol YYYY/MM/DD` Symbol to use as validation data
+
+- `model` Check model precision metrics (plot)
+  - `-p/--path MODEL_PATH` Model path (REQUIRED)
+  - `-s/--single SIMBOL` Single symbol analysis (REQUIRED)
+  - `-w/--window INPUT_WINDOW` How much last data values to use for prediction (REQUIRED)
+  - `--date-from YYYY/MM/DD` Take data from date
+  - `--date-to YYYY/MM/DD` Take data to date
+  - `-c/--capital START_CAPITAL` NOT IMPLEMENTED
+
+- `predict` Predict future from last date in data (plot)
+  - `-p/--path MODEL_PATH` Model path (REQUIRED)
+  - `-s/--single SIMBOL` Single symbol analysis (REQUIRED)
+  - `-w/--window INPUT_WINDOW` How much last data values to use for prediction (REQUIRED)
+  - `-n/--next NEXT` How much next values to predict (REQUIRED)
+  - `--date-from YYYY/MM/DD` Take data from date
+  - `--date-to YYYY/MM/DD` Take data to date. Predict from.

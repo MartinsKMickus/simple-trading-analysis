@@ -1,5 +1,6 @@
 import datetime
 import os
+from time import sleep
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -35,28 +36,57 @@ def model_v2(i_shape, output = 1):
     return model
 
 
-def model_v3(i_shape, first_units = 200, dense_after = 50, output = 1):
+def model_v3(i_shape, first_layer_units = 200, last_dropout = 0.5, output = 1):
     model = tf.keras.models.Sequential()
-    model.add(tf.keras.layers.LSTM(units=first_units, return_sequences=True, input_shape=(i_shape, 1)))
-    model.add(tf.keras.layers.LSTM(units=64))
-    model.add(tf.keras.layers.Dense(dense_after))
+    # Capture overall trend is it going up or down (one dense layer?)
+    model.add(tf.keras.layers.LSTM(units=100, return_sequences=True, input_shape=(i_shape, 1)))
+    model.add(tf.keras.layers.LSTM(units=50))
+    #model.add(tf.keras.layers.Dropout(0.25))
+    model.add(tf.keras.layers.Dense(25))
+    # Process and divide information (main start layer?)
+    # Throughout these proceses try to drop some of the values
+    # Next trending gathering?
+    # Final decision
+    #model.add(tf.keras.layers.LSTM(units=64))
+    #model.add(tf.keras.layers.Dense(dense_after))
     #model.add(tf.keras.layers.Dropout(0.7))
     #model.add(tf.keras.layers.Reshape((dense_after, 1)))
     #model.add(tf.keras.layers.LSTM(units=10))
-    model.add(tf.keras.layers.Dropout(0.5))
+    #model.add(tf.keras.layers.Dropout(0.2))
     model.add(tf.keras.layers.Dense(units=output))
     model.compile(optimizer='adam',
-                    loss='mean_squared_error', metrics=['accuracy'])
+                    loss='mean_squared_error', metrics=['mae'])
+    model.summary()
+    sleep(15)
     return model
 
 
-def get_evaluation(model: tf.keras.models.Sequential, x_test: np.array, y_test: np.array):
+def make_input_data(preprocessed_data: np.ndarray, input_window: int):
+    """
+    Takes preprocessed (sorted and scaled) ndarray and input window and returns model ready data
+
+    Args:
+        preprocessed_data (np.ndarray)
+        input_window (int)
+
+    Returns:
+        Model ready data
+    """
+    x_test = []
+    for x in range(input_window, len(preprocessed_data)):
+        x_test.append(preprocessed_data[x-input_window:x, 0])
+    x_test = np.array(x_test)
+    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+    return x_test
+
+
+def get_evaluation(model: tf.keras.models.Sequential, x_test: np.ndarray, y_test: np.ndarray):
     # TODO: Add description
     loss, accuracy = model.evaluate(x_test, y_test, verbose=0)
     return accuracy
 
 
-def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: np.array, epochs: int, batch_size: int = None, x_test: np.array = None, y_test: np.array = None):
+def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: np.array, epochs: int, batch_size: int = None, x_test: np.ndarray = None, y_test: np.ndarray = None):
     """
     
     Train model
@@ -65,7 +95,7 @@ def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: n
     log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     
-    if x_test != None and y_test != None:
+    if isinstance(x_test, np.ndarray) and isinstance(y_test, np.ndarray):
         model.fit(x_train,
                     y_train,
                     epochs=epochs,
@@ -173,7 +203,7 @@ def get_advanced_model(data: pd.DataFrame, look_back: int = 100, predict: int = 
     return model
 
 
-def predict_simple_next_values(data: pd.DataFrame, look_back: int = 100, next: int = 100):
+def predict_simple_next_values(data: pd.DataFrame, model: tf.keras.models.Sequential, look_back: int = 100, next: int = 100):
     """
     Predict next values for some data
 
@@ -186,14 +216,14 @@ def predict_simple_next_values(data: pd.DataFrame, look_back: int = 100, next: i
         Next predicted values
     """
 
-    if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
-        model = tf.keras.models.load_model(
-            f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}')
-    else:
-        if not query_yes_no("Model for such configuration doesn't exist. Create?", default="no"):
-            return
-        model = get_simple_model(data=data, look_back=look_back)
-        
+    # if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
+    #     model = tf.keras.models.load_model(
+    #         f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}')
+    # else:
+    #     if not query_yes_no("Model for such configuration doesn't exist. Create?", default="no"):
+    #         return
+    #     model = get_simple_model(data=data, look_back=look_back)
+    data.sort_values('time', inplace=True)
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
 
@@ -210,11 +240,10 @@ def predict_simple_next_values(data: pd.DataFrame, look_back: int = 100, next: i
         # update input for next prediction
         initial_input = np.append(initial_input[1:], predicted_price, axis=0)
         x_test = np.array([initial_input])
-
     # invert scaling on predictions to get actual prices
     predictions = scaler.inverse_transform(
         np.array(predictions).reshape(-1, 1))
-
+    
     return predictions
 
 
@@ -268,7 +297,7 @@ def test_simple_model(data: pd.DataFrame, model: tf.keras.models.Sequential, loo
     Returns:
         Predicted data on original data
     """
-        
+    data.sort_values('time', inplace=True)
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
 
@@ -277,7 +306,7 @@ def test_simple_model(data: pd.DataFrame, model: tf.keras.models.Sequential, loo
         x_test.append(scaled_data[x-look_back:x, 0])
 
     x_test = np.array(x_test)
-    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1)) # ??????
+    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
 
     # predict future values
     predicted_values = model.predict(x_test)
