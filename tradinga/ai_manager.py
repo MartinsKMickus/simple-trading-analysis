@@ -10,9 +10,10 @@ import tensorflow as tf
 from tradinga import constants
 
 from tradinga.ai_helper import get_evaluation, model_v3, predict_simple_next_values, test_simple_model, train_model
+from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
 
 
-def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test_data: pd.DataFrame = None):
+def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test_data: pd.DataFrame = None, log_symbol_name=None):
     data.sort_values('time', inplace=True)
     data['time'] = pd.to_datetime(data['time'])
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -53,9 +54,9 @@ def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test
     else:
         model = model_v3(x_train.shape[1])
     if isinstance(test_data, pd.DataFrame):
-        train_model(model=model,x_train=x_train,y_train=y_train,epochs=epochs, x_test=x_test, y_test=y_test)
+        train_model(model=model,x_train=x_train,y_train=y_train,epochs=epochs, x_test=x_test, y_test=y_test, log_name=log_symbol_name)
     else:
-        train_model(model=model,x_train=x_train,y_train=y_train,epochs=epochs)
+        train_model(model=model,x_train=x_train,y_train=y_train,epochs=epochs, log_name=log_symbol_name)
     model.save(model_path)
 
 
@@ -178,3 +179,87 @@ def draw_future(model_path: str, input_window:int, data: pd.DataFrame, predict: 
     #plt.plot(plot_data['time'], plot_data['money_change'], label='Profit?')
     plt.legend()
     plt.show()
+
+
+def analyze_model_metrics(model_path: str, input_window:int, online: bool = False):
+    """
+    Uses symbols to get model metrics
+    """
+    if not os.path.isdir(model_path):
+        print(f"Model {model_path} doesn't exist")
+        return
+    model = tf.keras.models.load_model(model_path)
+
+    symbols = load_existing_data(None, constants.INTERVAL)
+    if not isinstance(symbols, pd.DataFrame):
+        if not online:
+            print("Empty symbols file. Run in online mode to download it.")
+            return
+        from tradinga.api_helper import alpha_vantage_list
+        print("Empty symbols file. Trying to download it now.")
+        symbols = alpha_vantage_list()
+        save_data_to_csv(symbol=None, data=symbols, interval=None)
+
+    mse_max = 0
+    mse_min = None
+    mae_max = 0
+    mae_min = None
+    mse_values = []
+    mae_values = []
+
+    total_symbols = symbols['symbol'].size
+    current_pos = 0
+    for symbol in symbols['symbol']:
+        current_pos += 1
+        if online:
+            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+        if not isinstance(data, pd.DataFrame):
+            continue
+        if len(data) < input_window:
+            print(f"Symbol {symbol} has not enough data points")
+            continue
+
+        data.sort_values('time', inplace=True)
+        data['time'] = pd.to_datetime(data['time'])
+
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+
+        # prepare feature and labels
+        x_test = []
+        y_test = []
+
+        for i in range(input_window, len(data)):
+            x_test.append(scaled[i-input_window:i, 0])
+            y_test.append(scaled[i, 0])  # To predict next value for training
+
+        x_test, y_test = np.array(x_test), np.array(y_test)
+        x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+
+        mse, mae = get_evaluation(x_test=x_test, y_test=y_test,model=model)
+
+        mse_values.append(mse)
+        mae_values.append(mae)
+        if mse_max < mse:
+            mse_max = mse
+        if mse_min == None or mse_min > mse:
+            mse_min = mse
+        
+        if mae_max < mae:
+            mae_max = mae
+        if mae_min == None or mae_min > mae:
+            mae_min = mae
+        print(f'Finished symbol: {symbol}')
+        print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
+    print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
+
+    mse_average = sum(mse_values) / len(mse_values)
+    mae_average = sum(mae_values) / len(mae_values)
+    print(f'For model: ({model_path}):')
+    print(f'MSE min: {round(mse_min, 5)}')
+    print(f'MSE max: {round(mse_max, 5)}')
+    print(f'MSE avg: {round(mse_average, 5)}')
+    print(f'MAE min: {round(mae_min, 5)}')
+    print(f'MAE max: {round(mae_max, 5)}')
+    print(f'MAE avg: {round(mae_average, 5)}')

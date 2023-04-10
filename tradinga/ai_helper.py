@@ -5,65 +5,13 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
+from tradinga.ai_models import model_v2, model_v3
 
 import tradinga.constants as constants
 from tradinga.utils_helper import query_yes_no
 
 SIMPLE_MODEL_NAME = 'simple_model'
 ADVANCED_MODEL_NAME = 'advanced_model'
-
-
-def model_v1(i_shape, output = 1):
-    model = tf.keras.models.Sequential()
-    model.add(tf.keras.layers.LSTM(units=64,
-                                    return_sequences=True,
-                                    input_shape=(i_shape, 1)))
-    model.add(tf.keras.layers.LSTM(units=64))
-    model.add(tf.keras.layers.Dense(32))
-    model.add(tf.keras.layers.Dropout(0.5))
-    model.add(tf.keras.layers.Dense(units=output))
-    model.compile(optimizer='adam',
-                    loss='mean_squared_error')
-    return model
-    
-def model_v2(i_shape, output = 1):
-    model = tf.keras.models.Sequential()
-    model.add(tf.keras.layers.LSTM(units=128, input_shape=(i_shape, 1)))
-    model.add(tf.keras.layers.Dropout(0.2))
-    model.add(tf.keras.layers.Dense(units=output))
-    model.compile(optimizer='adam',
-                    loss='mean_squared_error')
-    return model
-
-
-def model_v3(i_shape, output = 1):
-    model = tf.keras.models.Sequential()
-    # Capture overall trend is it going up or down (one dense layer?)
-    model.add(tf.keras.layers.LSTM(units=64, return_sequences=True, input_shape=(i_shape, 1)))
-    #model.add(tf.keras.layers.Dense(32, input_shape=(i_shape, 1)))
-    model.add(tf.keras.layers.LSTM(units=16, return_sequences=True))
-    model.add(tf.keras.layers.Dense(64))
-    model.add(tf.keras.layers.Dropout(0.05))
-    model.add(tf.keras.layers.LSTM(units=8))
-    model.add(tf.keras.layers.Dense(16))
-    model.add(tf.keras.layers.Dense(8))
-    # Process and divide information (main start layer?)
-    # Throughout these proceses try to drop some of the values
-    # Next trending gathering?
-    # Final decision
-    #model.add(tf.keras.layers.LSTM(units=64))
-    #model.add(tf.keras.layers.Dense(dense_after))
-    #model.add(tf.keras.layers.Dropout(0.7))
-    #model.add(tf.keras.layers.Reshape((dense_after, 1)))
-    #model.add(tf.keras.layers.LSTM(units=10))
-    #model.add(tf.keras.layers.Dropout(0.2))
-    model.add(tf.keras.layers.Dense(units=output))
-    model.compile(optimizer='adam',
-                    loss='mean_squared_error', metrics=['mae'])
-    model.summary()
-    sleep(15)
-    return model
-
 
 def make_input_data(preprocessed_data: np.ndarray, input_window: int):
     """
@@ -86,26 +34,30 @@ def make_input_data(preprocessed_data: np.ndarray, input_window: int):
 
 def get_evaluation(model: tf.keras.models.Sequential, x_test: np.ndarray, y_test: np.ndarray):
     # TODO: Add description
-    loss, accuracy = model.evaluate(x_test, y_test, verbose=0)
-    return accuracy
+    mse, mae = model.evaluate(x_test, y_test) #, verbose=0)
+    return mse, mae
 
 
-def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: np.array, epochs: int, batch_size: int = None, x_test: np.ndarray = None, y_test: np.ndarray = None):
+def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: np.array, epochs: int, batch_size: int = None, x_test: np.ndarray = None, y_test: np.ndarray = None, log_name: str = None):
     """
     
     Train model
     """
     # TODO: Add description
-    log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    if log_name != None:
+        log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + log_name
+    else:
+        log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     
     if isinstance(x_test, np.ndarray) and isinstance(y_test, np.ndarray):
+        earlystop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=20, verbose=1, mode='auto')
         model.fit(x_train,
                     y_train,
                     epochs=epochs,
                     batch_size=batch_size,
                     validation_data=(x_test, y_test),
-                    callbacks=[tensorboard_callback])
+                    callbacks=[tensorboard_callback, earlystop])
     else:
         model.fit(x_train,
                     y_train,

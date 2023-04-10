@@ -133,3 +133,5 @@ dmypy.json
 constants.py
 data
 logs
+temp
+.vscode
