@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-import constants
+import tradinga.constants as constants
 
 
 # Alpha Vantage API call to get list of stocks and ETFs
@@ -36,7 +36,7 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
         months = delta.months
         days = delta.days
         if years == 0 and months == 0:
-            if days < 20:
+            if days < 1:
                 print(f"{symbol} is already up to date")
                 return
             months = 1
