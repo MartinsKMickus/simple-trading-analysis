@@ -2,8 +2,9 @@ import io
 import time
 import requests
 import pandas as pd
-from datetime import datetime
+import datetime
 from dateutil.relativedelta import relativedelta
+import yfinance
 
 import tradinga.constants as constants
 
@@ -31,7 +32,7 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
 
     # Get difference from two dates
     if from_date:
-        delta = relativedelta(datetime.now(), from_date)
+        delta = relativedelta(datetime.datetime.now(), from_date)
         years = delta.years
         months = delta.months
         days = delta.days
@@ -73,5 +74,18 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
         data['time'] = pd.to_datetime(data['time'])
         if from_date:
             data = data[(data['time'] > from_date)]
+
+    return data
+
+
+def yfinance_get_data(symbol: str, interval: str, from_date = None):
+    if from_date == None:
+        from_date = datetime.datetime.now() - datetime.timedelta(days=730)
+    data = yfinance.download(symbol, start=from_date, interval=interval).sort_values(by='Datetime', ascending=False)
+    print(data)
+    if isinstance(data, pd.DataFrame):
+        data['Datetime'] = pd.to_datetime(data['Datetime'])
+        if from_date:
+            data = data[(data['Datetime'] > from_date)]
 
     return data
