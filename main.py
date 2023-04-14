@@ -34,6 +34,8 @@ ap_ai.add_argument('-w', '--window', dest="window", metavar="INPUT_WINDOW", type
                    help='Input window for this model')
 ap_ai.add_argument('-e', '--epochs', dest="epochs", metavar="EPOCHS", type=int, default=100,
                    help='Training epochs. Default: 100')
+ap_ai.add_argument('-t', action='store_true',
+                       help='Validate model also.')
 
 ap_train.add_argument('-p', '--path', dest="model_path", metavar="MODEL_PATH", required=True,
                    help='Model path')
@@ -134,18 +136,23 @@ elif args.action == 'ai':
                 continue
             train_symbol = symbol[:]
             continue
-        if not isinstance(test_data, pd.DataFrame):
-            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-            test_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
-            if len(test_data) < input_window + constants.MIN_DATA_CHECKS:
-                print(f"Symbol {symbol} has not enough data points")
-                test_data = None
-                continue
-            test_symbol = symbol[:]
-        print(f"Testing on {test_symbol} and training on {train_symbol}")
+        if args.t:
+            if not isinstance(test_data, pd.DataFrame):
+                download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+                test_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+                if len(test_data) < input_window + constants.MIN_DATA_CHECKS:
+                    print(f"Symbol {symbol} has not enough data points")
+                    test_data = None
+                    continue
+                test_symbol = symbol[:]
+        if args.t:
+            print(f"Testing on {test_symbol} and training on {train_symbol}")
+        else:
+            print(f"Training on {train_symbol}")
         make_model(data=full_data, look_back=input_window, epochs=epochs, model_path=model_path, test_data=test_data, log_symbol_name=f'_Train_{train_symbol}_Test_{test_symbol}')
-        test_data = full_data
-        test_symbol = train_symbol
+        if args.t:
+            test_data = full_data
+            test_symbol = train_symbol
         full_data = None
 elif args.action == 'train':
     symbol = args.symbol
@@ -171,6 +178,7 @@ elif args.action == 'model':
         date_from = datetime.datetime.strptime(args.date_from, '%Y/%m/%d')
     if args.date_to:
         date_to = datetime.datetime.strptime(args.date_to, '%Y/%m/%d')
+    download_newest_data(symbol=symbol,interval=constants.INTERVAL)
     full_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
     filtered_data = get_data_interval(data=full_data, date_from=date_from, date_to=date_to)
     test_model_performance(model_path=model_path,input_window=input_window,data=filtered_data,start_ammount=capital)

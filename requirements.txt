@@ -2,3 +2,4 @@ pandas
 tensorflow
 scikit-learn
 matplotlib
+yfinance

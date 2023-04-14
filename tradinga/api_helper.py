@@ -81,11 +81,18 @@ def alpha_vantage_intraday_extended(symbol, interval, from_date, wait_between_ca
 def yfinance_get_data(symbol: str, interval: str, from_date = None):
     if from_date == None:
         from_date = datetime.datetime.now() - datetime.timedelta(days=730)
+    print(f'Downloading data for {symbol}')
     data = yfinance.download(symbol, start=from_date, interval=interval).sort_values(by='Datetime', ascending=False)
-    print(data)
+    # Removing timezone info
+    idx = data.index
+    idx = idx.tz_localize(None)
+    data.index = idx
+
+    data.reset_index(inplace=True)
     if isinstance(data, pd.DataFrame):
         data['Datetime'] = pd.to_datetime(data['Datetime'])
+        data = data.rename(columns={'Datetime': 'time'})
         if from_date:
-            data = data[(data['Datetime'] > from_date)]
+            data = data[(data['time'] > from_date)]
 
     return data

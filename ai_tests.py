@@ -83,18 +83,3 @@ def ai_test3(symbol: str = "AAPL", predict_from: datetime = datetime.datetime(20
     plt.plot(plot_data['time'], plot_data['predicted'], label='Predicted')
     plt.legend()
     plt.show()
-
-
-# import yfinance as yf
-
-# # # Yahoo history day limit
-# # new_date = datetime.datetime.now() - datetime.timedelta(days=730) , start=new_date
-# # # Download data
-# data = yf.download("AAPL", interval='1d')#.sort_values(by='Datetime', ascending=False)
-
-# # # Save data to CSV file
-# # data.to_csv("AAPL_1h_trading_data.csv")
-
-# plt.plot(data['Close'])
-# plt.show()
-# print(data)

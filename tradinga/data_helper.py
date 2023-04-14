@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
 import tradinga.constants as constants
-from tradinga.api_helper import alpha_vantage_intraday_extended
+from tradinga.api_helper import alpha_vantage_intraday_extended, yfinance_get_data
 
 DATA_DIR = constants.DATA_DIR
 STOCK_DIR = constants.STOCK_DIR
@@ -23,10 +23,10 @@ if not os.path.exists(STOCK_DIR):
 def save_data_to_csv(symbol: str, data: pd.DataFrame, interval: str):
     # Remove empty values
     data.dropna(how='all', inplace=True)
-
+    data.columns = map(str.lower, data.columns)
     if symbol == None:
-        file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        data.to_csv(file_path, index=False)
+        #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
+        data.to_csv(constants.SYMBOL_FILE, index=False)
         return
 
     file_path = os.path.join(STOCK_DIR, f'{symbol}_{interval}.csv')
@@ -48,9 +48,9 @@ def save_data_to_csv(symbol: str, data: pd.DataFrame, interval: str):
 def load_existing_data(symbol: str, interval: str):
     data = None
     if symbol == None:
-        file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        if os.path.exists(file_path):
-            data = pd.read_csv(file_path)
+        #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
+        if os.path.exists(constants.SYMBOL_FILE):
+            data = pd.read_csv(constants.SYMBOL_FILE)
             # Remove empty values
             data.dropna(how='all', inplace=True)
     else:
@@ -59,6 +59,9 @@ def load_existing_data(symbol: str, interval: str):
             data = pd.read_csv(file_path)
             # Remove empty values
             data.dropna(how='all', inplace=True)
+    
+    if isinstance(data, pd.DataFrame):
+        data.columns = map(str.lower, data.columns)
     return data
 
 
@@ -72,7 +75,7 @@ def download_newest_data(symbol: str, interval: str):
         last_date = None
 
     # Download and save
-    data = alpha_vantage_intraday_extended(symbol, interval, last_date)
+    data = yfinance_get_data(symbol, interval, last_date)
     if isinstance(data, pd.DataFrame):
         save_data_to_csv(symbol, data, interval)
 
