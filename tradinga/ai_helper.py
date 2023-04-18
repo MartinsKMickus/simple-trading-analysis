@@ -1,11 +1,10 @@
 import datetime
 import os
-from time import sleep
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
-from tradinga.ai_models import model_v2, model_v3
+from tradinga.ai_models import mape_loss, model_v2, model_v3
 
 import tradinga.constants as constants
 from tradinga.utils_helper import query_yes_no
@@ -96,8 +95,9 @@ def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50)
     x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
 
     if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
-        model = tf.keras.models.load_model(
-            f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
+        with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
+            model = tf.keras.models.load_model(
+                f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
     else:
         model = model_v3(x_train.shape[1])
         model.summary()
@@ -190,7 +190,7 @@ def predict_simple_next_values(data: pd.DataFrame, model: tf.keras.models.Sequen
 
     # predict future values
     for i in range(next):
-        predicted_price = model.predict(x_test)
+        predicted_price = model.predict(x_test, verbose=0)
         predictions.append(predicted_price[0][0])
 
         # update input for next prediction

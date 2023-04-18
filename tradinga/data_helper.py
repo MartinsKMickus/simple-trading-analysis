@@ -23,7 +23,9 @@ if not os.path.exists(STOCK_DIR):
 def save_data_to_csv(symbol: str, data: pd.DataFrame, interval: str):
     # Remove empty values
     data.dropna(how='all', inplace=True)
+    # Make sure all column manes are lowercase
     data.columns = map(str.lower, data.columns)
+    
     if symbol == None:
         #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
         data.to_csv(constants.SYMBOL_FILE, index=False)
@@ -60,6 +62,7 @@ def load_existing_data(symbol: str, interval: str):
             # Remove empty values
             data.dropna(how='all', inplace=True)
     
+    # Make sure all column manes are lowercase
     if isinstance(data, pd.DataFrame):
         data.columns = map(str.lower, data.columns)
     return data
