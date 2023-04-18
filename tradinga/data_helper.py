@@ -1,10 +1,9 @@
 import datetime
 import os
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 
 import tradinga.constants as constants
-from tradinga.api_helper import alpha_vantage_intraday_extended, yfinance_get_data
+from tradinga.api_helper import yfinance_get_data
 
 DATA_DIR = constants.DATA_DIR
 STOCK_DIR = constants.STOCK_DIR
@@ -104,19 +103,3 @@ def get_data_interval(data: pd.DataFrame, date_from: datetime.datetime = None, d
         filtered_data = filtered_data[(filtered_data['time'] < date_to)]
     
     return filtered_data
-
-
-def scale_and_sort(data: pd.DataFrame):
-    """
-    Takes data and returns new scaled and sorted data object
-
-    Args:
-        data (pandas.DataFrame)
-
-    Returns:
-        Scaled and filtered data
-    """
-    data.sort_values('time', inplace=True)
-    data['time'] = pd.to_datetime(data['time'])
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    return scaler.fit_transform(data['close'].values.reshape(-1, 1))
