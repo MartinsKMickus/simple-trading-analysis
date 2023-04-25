@@ -52,3 +52,9 @@ Stock/Crypto AI Machine Learning
   - `-n/--next NEXT` How much next values to predict (REQUIRED)
   - `--date-from YYYY/MM/DD` Take data from date
   - `--date-to YYYY/MM/DD` Take data to date. Predict from.
+
+## Code structure
+Code consists of different modules from which main ones are `DataManager` and `AIManager`.
+This graph should approximately represent data flow within:
+
+![image](https://user-images.githubusercontent.com/64271878/234019715-df74c364-21db-4cd7-923a-4640626fb39c.png)
