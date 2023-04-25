@@ -10,6 +10,61 @@ import tradinga.constants as constants
 
 SIMPLE_MODEL_NAME = 'simple_model'
 
+scaler = MinMaxScaler(feature_range=(0, 1))
+def scale_for_ai(data: pd.Series) -> np.ndarray:
+    """
+    Scale data for neural network
+
+    Args:
+        data (pandas.Series)
+
+    Returns:
+        scaled data (np.ndarray)
+
+    """
+    return scaler.fit_transform(data.values.reshape(-1, 1))
+
+
+def scale_back(values: np.ndarray) -> np.ndarray:
+    """
+    Scale back values to actual size
+
+    Args:
+        values (np.ndarray)
+
+    Returns:
+        scaled back values (np.ndarray)
+
+    """
+    return scaler.inverse_transform(
+        np.array(values).reshape(-1, 1))
+
+
+def get_xy_arrays(values: np.ndarray, window: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Get x_array (input) and y_array (output) for neural network training/validation
+
+    Args:
+        values (np.ndarray)
+        window (input window)
+
+    Returns:
+        x_array (input), y_array (output)
+
+    """
+    # TODO: Exception when window too large.
+    x_array = []
+    y_array = []
+
+    for i in range(window, len(values)):
+        x_array.append(values[i-window:i, 0])
+        y_array.append(values[i, 0])  # To predict next value for training
+
+    x_array, y_array = np.array(x_array), np.array(y_array)
+    x_array = np.reshape(x_array, (x_array.shape[0], x_array.shape[1], 1))
+
+    return x_array, y_array
+
 
 def get_evaluation(model: tf.keras.models.Sequential, x_test: np.ndarray, y_test: np.ndarray):
     # TODO: Add description
@@ -60,19 +115,9 @@ def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50)
     data.sort_values('time', inplace=True)
     data['time'] = pd.to_datetime(data['time'])
 
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+    scaled_data = scale_for_ai(data=data['close'])
 
-    # prepare feature and labels
-    x_train = []
-    y_train = []
-
-    for i in range(look_back, len(scaled_data)):
-        x_train.append(scaled_data[i-look_back:i, 0])
-        y_train.append(scaled_data[i, 0])  # To predict next value for training
-
-    x_train, y_train = np.array(x_train), np.array(y_train)
-    x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+    x_train, y_train = get_xy_arrays(values=scaled_data, window=look_back)
 
     if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
         with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
@@ -104,8 +149,7 @@ def predict_simple_next_values(data: pd.DataFrame, model: tf.keras.models.Sequen
     """
 
     data.sort_values('time', inplace=True)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+    scaled_data = scale_for_ai(data=data['close'])
 
     # get the last 'look_back' values from the dataset to use as initial input
     initial_input = scaled_data[-look_back:]
@@ -120,11 +164,8 @@ def predict_simple_next_values(data: pd.DataFrame, model: tf.keras.models.Sequen
         # update input for next prediction
         initial_input = np.append(initial_input[1:], predicted_price, axis=0)
         x_test = np.array([initial_input])
-    # invert scaling on predictions to get actual prices
-    predictions = scaler.inverse_transform(
-        np.array(predictions).reshape(-1, 1))
-    
-    return predictions
+
+    return scale_back(np.array(predictions))
 
 
 def test_simple_model(data: pd.DataFrame, model: tf.keras.models.Sequential, look_back: int):
@@ -140,8 +181,7 @@ def test_simple_model(data: pd.DataFrame, model: tf.keras.models.Sequential, loo
         Predicted data on original data
     """
     data.sort_values('time', inplace=True)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+    scaled_data = scale_for_ai(data=data['close'])
 
     x_test = []
     for x in range(look_back, len(scaled_data)):
@@ -153,8 +193,4 @@ def test_simple_model(data: pd.DataFrame, model: tf.keras.models.Sequential, loo
     # predict future values
     predicted_values = model.predict(x_test)
 
-    # invert scaling on predictions to get actual prices
-    predictions = scaler.inverse_transform(
-        np.array(predicted_values).reshape(-1, 1))
-
-    return predictions
+    return scale_back(predicted_values)
