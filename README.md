@@ -58,3 +58,9 @@ Code consists of different modules from which main ones are `DataManager` and `A
 This graph should approximately represent data flow within:
 
 ![image](https://user-images.githubusercontent.com/64271878/234019715-df74c364-21db-4cd7-923a-4640626fb39c.png)
+
+
+## Development
+To make sure issues are closed automatically when iteration is closed, changes goes to main, follow this guide:
+
+![Release_Diagram drawio](https://user-images.githubusercontent.com/64271878/234239562-07462dde-3b84-4e93-9243-073f17125104.png)
