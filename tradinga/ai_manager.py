@@ -8,7 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 from tradinga import constants
 
-from tradinga.ai_helper import get_evaluation, model_v3, predict_simple_next_values, test_simple_model, train_model
+from tradinga.ai_helper import get_evaluation, get_xy_arrays, model_v3, predict_simple_next_values, scale_for_ai, test_simple_model, train_model
 from tradinga.ai_models import mape_loss
 from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
 
@@ -16,40 +16,21 @@ from tradinga.data_helper import download_newest_data, load_existing_data, save_
 def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test_data: pd.DataFrame = None, log_symbol_name=None):
     data.sort_values('time', inplace=True)
     data['time'] = pd.to_datetime(data['time'])
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+    scaled_data = scale_for_ai(data=data['close'])
 
     # prepare feature and labels
-    x_train = []
-    y_train = []
-
-    for i in range(look_back, len(scaled_data)):
-        x_train.append(scaled_data[i-look_back:i, 0])
-        y_train.append(scaled_data[i, 0])  # To predict next value for training
-
-    x_train, y_train = np.array(x_train), np.array(y_train)
-    x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+    x_train, y_train = get_xy_arrays(values=scaled_data, window=look_back)
 
     if isinstance(test_data, pd.DataFrame):
         test_data.sort_values('time', inplace=True)
         test_data['time'] = pd.to_datetime(data['time'])
 
-        test_scaled = scaler.fit_transform(test_data['close'].values.reshape(-1, 1))
+        test_scaled = scale_for_ai(data=test_data['close'])
 
-        # prepare feature and labels
-        x_test = []
-        y_test = []
-
-        for i in range(look_back, len(test_scaled)):
-            x_test.append(test_scaled[i-look_back:i, 0])
-            y_test.append(test_scaled[i, 0])  # To predict next value for training
-
-        x_test, y_test = np.array(x_test), np.array(y_test)
-        x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+        x_test, y_test = get_xy_arrays(values=test_scaled, window=look_back)
 
     if os.path.isdir(model_path):
         print("Found such model. Will continue to train it.")
-        #sleep(5)
         with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
             model = tf.keras.models.load_model(model_path)
     else:
@@ -68,31 +49,13 @@ def test_model_performance(model_path: str, input_window:int, data: pd.DataFrame
     with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
         model = tf.keras.models.load_model(model_path)
     output_data = test_simple_model(data=data,model=model,look_back=input_window)
-    #positive_feedback = 0
-    #buy = False
-    #predicted_values = []
-    #money_change = []
-    #money_change.append(start_ammount)
-    # for x in range(input_window + 1, len(data), 10): # + 1 because of profit calculations
-    #     output_data = predict_simple_next_values(data=data.iloc[x-input_window:x], model=model,look_back=input_window,next=10)
-    #     predicted_values.append(output_data)
-    #     real_change = data['close'].iloc[x] / data['close'].iloc[x - 1]
-    #     predicted_change = output_data[-1] / data['close'].iloc[x - 1]
-    #print(f'Positive: {positive_feedback/len(output_data)}')
-    #print(f'Money: {start_ammount}')
     plot_data = data[['time', 'close']].copy()
-    #print(np.concatenate(predicted_values))
-    #money_change.reverse()
+
     plot_data = plot_data.iloc[input_window:]
     plot_data['predicted'] = np.concatenate(output_data)#[:plot_data.shape[0]]
-    #plot_data['money_change'] = money_change
-
-    # mse, mae = get_model_metrics(data=data, model=model, input_window=input_window)
-    # print(f'WARNING!\n DETECTED MSE: {mse}\n DETECTED MAE: {mae}')
 
     plt.plot(plot_data['time'], plot_data['close'], label='Actual')
     plt.plot(plot_data['time'], plot_data['predicted'], label='Predicted')
-    #plt.plot(plot_data['time'], plot_data['money_change'], label='Profit?')
     plt.legend()
     plt.show()
 
@@ -129,19 +92,9 @@ def get_model_metrics(data: pd.DataFrame, model: tf.keras.models.Sequential, inp
     data.sort_values('time', inplace=True)
     data['time'] = pd.to_datetime(data['time'])
 
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled = scaler.fit_transform(data['close'].values.reshape(-1, 1))
+    scaled_data = scale_for_ai(data=data['close'])
 
-    # prepare feature and labels
-    x_test = []
-    y_test = []
-
-    for i in range(input_window, len(data)):
-        x_test.append(scaled[i-input_window:i, 0])
-        y_test.append(scaled[i, 0])  # To predict next value for training
-
-    x_test, y_test = np.array(x_test), np.array(y_test)
-    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+    x_test, y_test = get_xy_arrays(values=scaled_data, window=input_window)
 
     return get_evaluation(x_test=x_test, y_test=y_test,model=model)
 
