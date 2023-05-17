@@ -21,6 +21,6 @@ def model_v3(i_shape, output = 1):
     model.add(tf.keras.layers.BatchNormalization())
     model.add(tf.keras.layers.Dense(units=output))
     model.compile(optimizer='adam',
-                    loss=mape_loss)#, metrics=['mae']) loss: mean_squared_error
+                  loss='mean_squared_error', metrics=['mae']) # loss=mape_loss
     model.summary()
     return model
