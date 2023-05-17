@@ -6,7 +6,7 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from tradinga.ai_models import mape_loss, model_v3
 
-import tradinga.constants as constants
+import tradinga.settings as settings
 
 SIMPLE_MODEL_NAME = 'simple_model'
 
@@ -119,9 +119,9 @@ def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50)
 
     x_train, y_train = get_xy_arrays(values=scaled_data, window=look_back)
 
-    if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
+    if os.path.isdir(f'{settings.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
             model = tf.keras.models.load_model(
-                f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
+                f'{settings.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{settings.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
     else:
         model = model_v3(x_train.shape[1])
         model.summary()
@@ -129,7 +129,7 @@ def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50)
         train_model(model,x_train,y_train,epochs)
         
         model.save(
-            f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}')
+            f'{settings.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}')
         
     return model
 

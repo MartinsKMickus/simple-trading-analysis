@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tradinga import constants
+from tradinga import settings
 
 from tradinga.ai_helper import get_evaluation, get_xy_arrays, model_v3, predict_simple_next_values, scale_for_ai, test_simple_model, train_model
 from tradinga.ai_models import mape_loss
@@ -105,7 +105,7 @@ def analyze_model_metrics(model_path: str, input_window:int, online: bool = Fals
         return
     model = tf.keras.models.load_model(model_path)
 
-    symbols = load_existing_data(None, constants.INTERVAL)
+    symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         if not online:
             print("Empty symbols file. Run in online mode to download it.")
@@ -127,8 +127,8 @@ def analyze_model_metrics(model_path: str, input_window:int, online: bool = Fals
     for symbol in symbols['symbol']:
         current_pos += 1
         if online:
-            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
         if not isinstance(data, pd.DataFrame):
             continue
         if len(data) < input_window:
@@ -169,7 +169,7 @@ def analyze_market_stocks(model_path: str, input_window:int, future: int = 10, d
         return
     model = tf.keras.models.load_model(model_path)
 
-    symbols = load_existing_data(None, constants.INTERVAL)
+    symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         # if not online:
         #     print("Empty symbols file. Run in online mode to download it.")
@@ -187,21 +187,21 @@ def analyze_market_stocks(model_path: str, input_window:int, future: int = 10, d
         current_pos += 1
         if download_all:
             try:
-                download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+                download_newest_data(symbol=symbol,interval=settings.INTERVAL)
             except:
                 print(f'Failed to download {symbol}. Skipping...')
                 continue
         
-        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
         if not isinstance(data, pd.DataFrame):
             continue
 
         try:
-            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
         except:
             print(f'Failed to download {symbol}. Skipping...')
             continue
-        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
         if len(data) < input_window:
             print(f"{symbol} has not enough data points")
             continue
