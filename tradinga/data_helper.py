@@ -2,11 +2,11 @@ import datetime
 import os
 import pandas as pd
 
-import tradinga.constants as constants
+import tradinga.settings as settings
 from tradinga.api_helper import yfinance_get_data
 
-DATA_DIR = constants.DATA_DIR
-STOCK_DIR = constants.STOCK_DIR
+DATA_DIR = settings.DATA_DIR
+STOCK_DIR = settings.STOCK_DIR
 
 
 # Create directory if it doesn't exist
@@ -27,7 +27,7 @@ def save_data_to_csv(data: pd.DataFrame, interval: str = "", symbol: str = ""):
     
     if symbol == "":
         #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        data.to_csv(constants.SYMBOL_FILE, index=False)
+        data.to_csv(settings.SYMBOL_FILE, index=False)
         return
 
     file_path = os.path.join(STOCK_DIR, f'{symbol}_{interval}.csv')
@@ -50,8 +50,8 @@ def load_existing_data(symbol: str, interval: str):
     data = None
     if symbol == None:
         #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        if os.path.exists(constants.SYMBOL_FILE):
-            data = pd.read_csv(constants.SYMBOL_FILE)
+        if os.path.exists(settings.SYMBOL_FILE):
+            data = pd.read_csv(settings.SYMBOL_FILE)
             # Remove empty values
             data.dropna(how='all', inplace=True)
     else:

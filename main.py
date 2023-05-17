@@ -3,7 +3,7 @@ import datetime
 import sys
 
 import pandas as pd
-import tradinga.constants as constants
+import tradinga.settings as settings
 
 from tradinga.data_helper import download_newest_data, get_data_interval, load_existing_data, save_data_to_csv
 
@@ -95,9 +95,9 @@ args = parser.parse_args()
 if args.action == 'update':
     print("Update Started")
     if args.symbol:
-        download_newest_data(args.symbol, constants.INTERVAL)
+        download_newest_data(args.symbol, settings.INTERVAL)
         sys.exit(0)
-    symbols = load_existing_data(None, constants.INTERVAL)
+    symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
@@ -106,13 +106,13 @@ if args.action == 'update':
     if args.r:
         symbols = symbols.sample(frac=1).reset_index(drop=True)
     for symbol in symbols['symbol']:
-        download_newest_data(symbol, constants.INTERVAL)
+        download_newest_data(symbol, settings.INTERVAL)
 elif args.action == 'ai':
     from tradinga.ai_manager import make_model
     model_path = args.model_path
     input_window = args.window
     epochs = args.epochs
-    symbols = load_existing_data(None, constants.INTERVAL)
+    symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
@@ -134,13 +134,13 @@ elif args.action == 'ai':
                 wait_symbol = False
             else:
                 continue
-        if symbol in constants.EXCLUDE:
+        if symbol in settings.EXCLUDE:
             print(f"Symbol {symbol} is in exclude list. Skipping.")
             continue
         if not isinstance(full_data, pd.DataFrame):
-            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-            full_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
-            if len(full_data) < input_window + constants.MIN_DATA_CHECKS:
+            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
+            full_data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
+            if len(full_data) < input_window + settings.MIN_DATA_CHECKS:
                 print(f"Symbol {symbol} has not enough data points")
                 full_data = None
                 continue
@@ -148,9 +148,9 @@ elif args.action == 'ai':
             continue
         if args.t:
             if not isinstance(test_data, pd.DataFrame):
-                download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-                test_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
-                if len(test_data) < input_window + constants.MIN_DATA_CHECKS:
+                download_newest_data(symbol=symbol,interval=settings.INTERVAL)
+                test_data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
+                if len(test_data) < input_window + settings.MIN_DATA_CHECKS:
                     print(f"Symbol {symbol} has not enough data points")
                     test_data = None
                     continue
@@ -170,11 +170,11 @@ elif args.action == 'train':
     model_path = args.model_path
     input_window = args.window
     epochs = args.epochs
-    download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-    full_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+    download_newest_data(symbol=symbol,interval=settings.INTERVAL)
+    full_data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
     if args.test_symbol != None:
-        download_newest_data(symbol=args.test_symbol,interval=constants.INTERVAL)
-        test_data = load_existing_data(symbol=args.test_symbol, interval=constants.INTERVAL)
+        download_newest_data(symbol=args.test_symbol,interval=settings.INTERVAL)
+        test_data = load_existing_data(symbol=args.test_symbol, interval=settings.INTERVAL)
         make_model(data=full_data, look_back=input_window, epochs=epochs, model_path=model_path, test_data=test_data)
     else:
         make_model(data=full_data, look_back=input_window, epochs=epochs, model_path=model_path)
@@ -190,8 +190,8 @@ elif args.action == 'model':
         date_from = datetime.datetime.strptime(args.date_from, '%Y/%m/%d')
     if args.date_to:
         date_to = datetime.datetime.strptime(args.date_to, '%Y/%m/%d')
-    download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-    full_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+    download_newest_data(symbol=symbol,interval=settings.INTERVAL)
+    full_data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
     filtered_data = get_data_interval(data=full_data, date_from=date_from, date_to=date_to)
     test_model_performance(model_path=model_path,input_window=input_window,data=filtered_data,start_ammount=capital)
         # TODO: Implement money graph
@@ -208,12 +208,12 @@ elif args.action == 'predict':
     model_path = args.model_path
     predict = args.next
     input_window = args.window
-    download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+    download_newest_data(symbol=symbol,interval=settings.INTERVAL)
     if args.date_from:
         date_from = datetime.datetime.strptime(args.date_from, '%Y/%m/%d')
     if args.date_to:
         date_to = datetime.datetime.strptime(args.date_to, '%Y/%m/%d')
-    full_data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+    full_data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
     filtered_data = get_data_interval(data=full_data, date_from=date_from, date_to=date_to)
     draw_future(model_path=model_path,input_window=input_window,data=filtered_data,predict=predict)
 elif args.action == 'predict_market':
