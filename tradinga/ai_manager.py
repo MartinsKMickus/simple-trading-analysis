@@ -31,8 +31,7 @@ def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test
 
     if os.path.isdir(model_path):
         print("Found such model. Will continue to train it.")
-        with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
-            model = tf.keras.models.load_model(model_path)
+        model = tf.keras.models.load_model(model_path)
     else:
         model = model_v3(x_train.shape[1])
     if isinstance(test_data, pd.DataFrame):
@@ -46,8 +45,7 @@ def test_model_performance(model_path: str, input_window:int, data: pd.DataFrame
     if not os.path.isdir(model_path):
         print(f"Model {model_path} doesn't exist")
         return
-    with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
-        model = tf.keras.models.load_model(model_path)
+    model = tf.keras.models.load_model(model_path)
     output_data = test_simple_model(data=data,model=model,look_back=input_window)
     plot_data = data[['time', 'close']].copy()
 
@@ -64,8 +62,8 @@ def draw_future(model_path: str, input_window:int, data: pd.DataFrame, predict: 
     if not os.path.isdir(model_path):
         print(f"Model {model_path} doesn't exist")
         return
-    with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
-        model = tf.keras.models.load_model(model_path)
+    
+    model = tf.keras.models.load_model(model_path)
     data.sort_values('time', inplace=True)
     output_data = predict_simple_next_values(data=data.iloc[len(data)-input_window:len(data)], model=model,look_back=input_window,next=predict)
 

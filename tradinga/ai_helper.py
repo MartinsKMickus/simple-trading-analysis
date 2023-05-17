@@ -120,7 +120,6 @@ def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50)
     x_train, y_train = get_xy_arrays(values=scaled_data, window=look_back)
 
     if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
-        with tf.keras.utils.custom_object_scope({'mape_loss': mape_loss}):
             model = tf.keras.models.load_model(
                 f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
     else:
