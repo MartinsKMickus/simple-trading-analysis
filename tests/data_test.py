@@ -1,12 +1,11 @@
-import os
 import unittest
 
 import pandas as pd
-from tradinga.ai_manager import analyze_market_stocks, make_model
+from tradinga.api_helper import get_nasdaq_symbols
 
-from tradinga.data_helper import download_newest_data, load_existing_data
+from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
 
-class SimpleTests(unittest.TestCase):
+class DataTests(unittest.TestCase):
 
     def test_download_apple(self):
         download_newest_data('AAPL', '1h')
@@ -19,18 +18,9 @@ class SimpleTests(unittest.TestCase):
         self.assertTrue(isinstance(data, pd.DataFrame))
 
 
-    def test_model(self):
-        download_newest_data('AAPL', '1h')
-        data = load_existing_data('AAPL', '1h')
-        make_model(data=data, look_back=100, epochs=10, model_path='temp/TEST_MODEL')
-        self.assertTrue(os.path.exists('temp/TEST_MODEL'))
-
-
-    def test_market_analyzer(self):
-        download_newest_data('AAPL', '1h')
-        data = load_existing_data('AAPL', '1h')
-        make_model(data=data, look_back=100, epochs=10, model_path='temp/TEST_MODEL')
-        analyze_market_stocks(model_path='temp/TEST_MODEL', input_window=100)
+    def test_download_symbols(self):
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
 
         
     # def test_upper(self):

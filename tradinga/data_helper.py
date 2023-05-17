@@ -19,13 +19,13 @@ if not os.path.exists(STOCK_DIR):
 # Saves symbol data to a file.
 # If file exists, then it will be updated with newest data.
 # symbol = None saves symbol list file
-def save_data_to_csv(symbol: str, data: pd.DataFrame, interval: str):
+def save_data_to_csv(data: pd.DataFrame, interval: str = "", symbol: str = ""):
     # Remove empty values
     data.dropna(how='all', inplace=True)
     # Make sure all column manes are lowercase
     data.columns = map(str.lower, data.columns)
     
-    if symbol == None:
+    if symbol == "":
         #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
         data.to_csv(constants.SYMBOL_FILE, index=False)
         return
@@ -79,7 +79,7 @@ def download_newest_data(symbol: str, interval: str):
     # Download and save
     data = yfinance_get_data(symbol, interval, last_date)
     if isinstance(data, pd.DataFrame):
-        save_data_to_csv(symbol, data, interval)
+        save_data_to_csv(symbol=symbol, data=data, interval=interval)
 
 
 def get_data_interval(data: pd.DataFrame, date_from: datetime.datetime = None, date_to: datetime.datetime = None) -> pd.DataFrame:
