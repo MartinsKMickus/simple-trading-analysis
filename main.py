@@ -99,10 +99,10 @@ if args.action == 'update':
         sys.exit(0)
     symbols = load_existing_data(None, constants.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
-        from tradinga.api_helper import alpha_vantage_list
+        from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
-        symbols = alpha_vantage_list()
-        save_data_to_csv(symbol=None, data=symbols, interval=None)
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
     if args.r:
         symbols = symbols.sample(frac=1).reset_index(drop=True)
     for symbol in symbols['symbol']:
@@ -114,10 +114,10 @@ elif args.action == 'ai':
     epochs = args.epochs
     symbols = load_existing_data(None, constants.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
-        from tradinga.api_helper import alpha_vantage_list
+        from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
-        symbols = alpha_vantage_list()
-        save_data_to_csv(symbol=None, data=symbols, interval=None)
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
     if args.r:
         symbols = symbols.sample(frac=1).reset_index(drop=True)
     train_symbol = None

@@ -4,7 +4,6 @@ import os
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 from tradinga import constants
 
@@ -111,10 +110,10 @@ def analyze_model_metrics(model_path: str, input_window:int, online: bool = Fals
         if not online:
             print("Empty symbols file. Run in online mode to download it.")
             return
-        from tradinga.api_helper import alpha_vantage_list
+        from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
-        symbols = alpha_vantage_list()
-        save_data_to_csv(symbol=None, data=symbols, interval=None)
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
 
     mse_max = 0
     mse_min = None
@@ -175,10 +174,10 @@ def analyze_market_stocks(model_path: str, input_window:int, future: int = 10, d
         # if not online:
         #     print("Empty symbols file. Run in online mode to download it.")
         #     return
-        from tradinga.api_helper import alpha_vantage_list
+        from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
-        symbols = alpha_vantage_list()
-        save_data_to_csv(symbol=None, data=symbols, interval=None)
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
 
     max_growth = 0
     stonks_symbol = ''

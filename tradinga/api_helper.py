@@ -1,21 +1,27 @@
 import io
 import time
-import requests
 import pandas as pd
 import datetime
 from dateutil.relativedelta import relativedelta
 import yfinance
 
-import tradinga.constants as constants
 
 
 # Alpha Vantage API call to get list of stocks and ETFs
 # Returns DataFrame
-def alpha_vantage_list():
-    url = f'https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={constants.ALPHA_VANTAGE_API_KEY}'
+def get_nasdaq_symbols():
+    import requests
+
+    url = 'http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt'
+
     response = requests.get(url)
-    response.raise_for_status()
-    return pd.read_csv(io.StringIO(response.text))
+    data = pd.read_csv(io.StringIO(response.text), delimiter='|')
+    # Remove empty values
+    data.dropna(how='all', inplace=True)
+    # Make sure all column manes are lowercase
+    data.columns = map(str.lower, data.columns)
+
+    return data
 
 
 def yfinance_get_data(symbol: str, interval: str, from_date = None, max_tries=3):
