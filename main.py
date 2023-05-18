@@ -134,9 +134,9 @@ elif args.action == 'ai':
                 wait_symbol = False
             else:
                 continue
-        if symbol in settings.EXCLUDE:
-            print(f"Symbol {symbol} is in exclude list. Skipping.")
-            continue
+        # if symbol in settings.EXCLUDE:
+        #     print(f"Symbol {symbol} is in exclude list. Skipping.")
+        #     continue
         if not isinstance(full_data, pd.DataFrame):
             download_newest_data(symbol=symbol,interval=settings.INTERVAL)
             full_data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)

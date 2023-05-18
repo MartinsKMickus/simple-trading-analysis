@@ -1,5 +1,6 @@
 DATA_DIR = 'data'
 STOCK_DIR = 'data/market'
-INTERVAL = '1h'
-
 SYMBOL_FILE = 'data/symbols.csv'
+
+INTERVAL = '60m'
+MIN_DATA_CHECKS = 100
