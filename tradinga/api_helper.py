@@ -28,6 +28,8 @@ def yfinance_get_data(symbol: str, interval: str, from_date = None, max_tries=2)
     if from_date == None:
         if interval in ['1m', '2m', '5m', '15m', '30m', '60m', '90m']:
             from_date = datetime.datetime.now() - datetime.timedelta(days=730)
+        else:
+            from_date = datetime.datetime.now() - datetime.timedelta(days=3000)
     else:
         # Get difference from two dates
         delta = relativedelta(datetime.datetime.now(), from_date)
@@ -62,13 +64,14 @@ def yfinance_get_data(symbol: str, interval: str, from_date = None, max_tries=2)
     if interval in ['1m', '2m', '5m', '15m', '30m', '60m', '90m']:
         data = data.sort_values(by='Datetime', ascending=False)
         data = data.rename(columns={'Datetime': 'time'})
+        data['time'] = pd.to_datetime(data['time'])
     else:
         data = data.sort_values(by='Date', ascending=False)
         data = data.rename(columns={'Date': 'time'})
+        data['time'] = pd.to_datetime(data['time'], format="%Y-%m-%d")
 
-    if isinstance(data, pd.DataFrame):
-        data['time'] = pd.to_datetime(data['time'])
-        if from_date:
-            data = data[(data['time'] > from_date)]
+    
+    if from_date:
+        data = data[(data['time'] > from_date)]
 
     return data
