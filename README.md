@@ -1,5 +1,11 @@
 # simple-trading-analysis
-Stock/Crypto AI Machine Learning
+AI stock market recommendation generator.
+- The tool target is to provide insight of stock market (NASDAQ for now) in form of a list that describes possible stock value change after specific time.
+- User should provide time intervals that should be analyzed and time units in future to get prediction for. (Short-Term Swing Trading for now)
+- Tool gives a list of analysed stocks, predicted price movement and probability of analysis being right or wrong.
+
+<b>DISCLAIMER: Make trades at your own risk. Decisions should be your own!</b>
+
 
 ## Prerequisites:
 - Install requirements.txt
