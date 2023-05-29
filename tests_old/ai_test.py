@@ -2,8 +2,8 @@ import unittest
 import os
 import shutil
 
-from tradinga.data_helper import download_newest_data, load_existing_data
-from tradinga.ai_manager import analyze_market_stocks, analyze_model_metrics, make_model
+from tradinga_old.data_helper import download_newest_data, load_existing_data
+from tradinga_old.ai_manager import analyze_market_stocks, analyze_model_metrics, make_model
 
 class AITests(unittest.TestCase):
 

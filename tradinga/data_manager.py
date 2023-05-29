@@ -42,8 +42,9 @@ class DataManager:
             url = "http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
             response = requests.get(url)
             symbol_data = pd.read_csv(io.StringIO(response.text), delimiter="|")
-            symbol_data = symbol_data.dropna(how="all")  # no inplace
             symbol_data.columns = symbol_data.columns.str.lower()
+            symbol_data = symbol_data.dropna(subset=["symbol"])
+            symbol_data = symbol_data.reset_index(drop=True)
             symbol_data.to_csv(symbol_file, index=False)
 
         if not isinstance(symbol_data, pd.DataFrame):
@@ -113,7 +114,7 @@ class DataManager:
         # date/time column is index. Need to make it as normal column.
         data = data.reset_index()
 
-        data = data.dropna(how="all")
+        data = data.dropna(how="any")
         data.columns = data.columns.str.lower()
 
         if interval in ["1m", "2m", "5m", "15m", "30m", "60m", "90m"]:

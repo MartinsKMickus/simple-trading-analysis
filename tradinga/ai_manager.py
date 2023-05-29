@@ -1,213 +1,139 @@
 
 
+
+import datetime
 import os
-from matplotlib import pyplot as plt
+
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
-from tradinga import settings
 
-from tradinga.ai_helper import get_evaluation, get_xy_arrays, model_v3, predict_simple_next_values, scale_for_ai, test_simple_model, train_model
-from tradinga.ai_models import MODEL_METRICS, load_model
-from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
+from tradinga.settings import DATA_DIR
+from keras.utils import custom_object_scope
 
 
-def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test_data: pd.DataFrame = None, log_symbol_name=None):
-    data.sort_values('time', inplace=True)
-    data['time'] = pd.to_datetime(data['time'])
-    scaled_data = scale_for_ai(data=data['close'])
+MODEL_METRICS = [ 'mean_squared_error', 'direction_sensitive_loss','mae', 'mape_loss']
 
-    # prepare feature and labels
-    x_train, y_train = get_xy_arrays(values=scaled_data, window=look_back)
+def model_v3(i_shape, output = 1):
+    model = tf.keras.models.Sequential()
+    model.add(tf.keras.layers.LSTM(units=64, return_sequences=True, input_shape=(i_shape, 1)))
+    model.add(tf.keras.layers.LSTM(units=16))
+    model.add(tf.keras.layers.Dense(128))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Dropout(0.1))
+    model.add(tf.keras.layers.Reshape((1, 128)))
+    model.add(tf.keras.layers.LSTM(units=8, return_sequences=True))
+    model.add(tf.keras.layers.LSTM(units=4))
+    model.add(tf.keras.layers.Dense(4))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Dense(units=output))
+    model.compile(optimizer='adam',
+                loss='mean_squared_error', metrics=['mae'])
+    model.summary()
+    return model
 
-    if isinstance(test_data, pd.DataFrame):
-        test_data.sort_values('time', inplace=True)
-        test_data['time'] = pd.to_datetime(data['time'])
-
-        test_scaled = scale_for_ai(data=test_data['close'])
-
-        x_test, y_test = get_xy_arrays(values=test_scaled, window=look_back)
-
-    if os.path.isdir(model_path):
-        print("Found such model. Will continue to train it.")
-        model = load_model(model_path)
-    else:
-        model = model_v3(x_train.shape[1])
-    if isinstance(test_data, pd.DataFrame):
-        train_model(model=model,x_train=x_train,y_train=y_train,epochs=epochs, x_test=x_test, y_test=y_test, log_name=log_symbol_name)
-    else:
-        train_model(model=model,x_train=x_train,y_train=y_train,epochs=epochs, log_name=log_symbol_name)
-    model.save(model_path)
+def load_model(path: str):
+    # with custom_object_scope({'direction_sensitive_loss': direction_sensitive_loss, 'mape_loss': mape_loss}):
+    return tf.keras.models.load_model(path)
     
-
-def test_model_performance(model_path: str, input_window:int, data: pd.DataFrame, start_ammount: float):
-    if not os.path.isdir(model_path):
-        print(f"Model {model_path} doesn't exist")
-        return
-    model = load_model(model_path)
-    output_data = test_simple_model(data=data,model=model,look_back=input_window)
-    plot_data = data[['time', 'close']].copy()
-
-    plot_data = plot_data.iloc[input_window:]
-    plot_data['predicted'] = np.concatenate(output_data)#[:plot_data.shape[0]]
-
-    plt.plot(plot_data['time'], plot_data['close'], label='Actual')
-    plt.plot(plot_data['time'], plot_data['predicted'], label='Predicted')
-    plt.legend()
-    plt.show()
-
-
-def draw_future(model_path: str, input_window:int, data: pd.DataFrame, predict: int):
-    if not os.path.isdir(model_path):
-        print(f"Model {model_path} doesn't exist")
-        return
     
-    model = load_model(model_path)
-    data.sort_values('time', inplace=True)
-    output_data = predict_simple_next_values(data=data.iloc[len(data)-input_window:len(data)], model=model,look_back=input_window,next=predict)
+class AIManager:
 
-    output_data = np.squeeze(output_data) # We got rows as data in column not one row
-    predicted = pd.DataFrame({'time': pd.date_range(start=data['time'].max(), periods=predict+1, freq='30min')[1:], 'close': output_data})
+    window = 200
+    batch_size = 64
+    use_earlystop = False
+    earlystop_patience = 50
+    scaler = MinMaxScaler()
+    model = None
 
-    # mse, mae = get_model_metrics(data=data, model=model, input_window=input_window)
-    # print(f'WARNING!\n DETECTED MSE: {mse}\n DETECTED MAE: {mae}')
+    def __init__(self, data_dir: str = DATA_DIR) -> None:
+        ai_location = data_dir + "/" + f'MODEL_{self.window}'
+        if os.path.isdir(ai_location):
+            self.model = load_model(ai_location)
+    
+    def scale_for_ai(self, data: pd.DataFrame) -> np.ndarray:
+        """
+        Scale data for neural network
 
-    plt.plot(data['time'], data['close'], label='Actual')
-    plt.plot(predicted['time'], predicted['close'], label='Predicted')
-    plt.legend()
-    plt.show()
+        Args:
+            data (pandas.Series)
 
+        Returns:
+            scaled data (np.ndarray)
 
-def get_model_metrics(data: pd.DataFrame, model: tf.keras.models.Sequential, input_window: int):
-    if not isinstance(data, pd.DataFrame):
-        print(f"DataFrame was none")
-        return
-    if len(data) < input_window:
-        print(f"DataFrame has not enough data points")
-        return
-
-    data.sort_values('time', inplace=True)
-    data['time'] = pd.to_datetime(data['time'])
-
-    scaled_data = scale_for_ai(data=data['close'])
-
-    x_test, y_test = get_xy_arrays(values=scaled_data, window=input_window)
-
-    return get_evaluation(x_test=x_test, y_test=y_test,model=model)
+        """
+        return self.scaler.fit_transform(data.values)
 
 
-def analyze_model_metrics(model_path: str, input_window:int, online: bool = False):
-    """
-    Uses symbols to get model metrics
-    """
-    if not os.path.isdir(model_path):
-        print(f"Model {model_path} doesn't exist")
-        return
-    model = load_model(model_path)
+    def scale_back(self, values: np.ndarray) -> np.ndarray:
+        """
+        Scale back values to actual size
 
-    symbols = load_existing_data(None, settings.INTERVAL)
-    if not isinstance(symbols, pd.DataFrame):
-        if not online:
-            print("Empty symbols file. Run in online mode to download it.")
-            return
-        from tradinga.api_helper import get_nasdaq_symbols
-        print("Empty symbols file. Trying to download it now.")
-        symbols = get_nasdaq_symbols()
-        save_data_to_csv(data=symbols)
+        Args:
+            values (np.ndarray)
 
-    metric_values = [[] for _ in range(len(MODEL_METRICS))]
+        Returns:
+            scaled back values (np.ndarray)
 
-    total_symbols = symbols['symbol'].size
-    current_pos = 0
-    for symbol in symbols['symbol']:
-        current_pos += 1
-        if online:
-            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
-        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
-        if not isinstance(data, pd.DataFrame):
-            continue
-        if len(data) < input_window:
-            print(f"{symbol} has not enough data points")
-            continue
+        """
+        return self.scaler.inverse_transform(values)
 
-        metrics = get_model_metrics(data=data, model=model, input_window=input_window)
-        if not isinstance(metrics, list):
-            raise Exception("Looks like there is only one model metric or something is wrong!")
-        if len(metrics) != len(MODEL_METRICS):
-            raise Exception("Different count of model metrics detected!")
+    def get_xy_arrays(self, values: np.ndarray, window: int = window) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Get x_array (input) and y_array (output) for neural network training/validation
+
+        Args:
+            values (np.ndarray)
+            window (input window)
+
+        Returns:
+            x_array (input), y_array (output)
+
+        """
+        x_array = []
+        y_array = []
+
+        for i in range(window, len(values)):
+            x_array.append(values[i-window:i, [1, 2, 3, 4, 5]])  # Include columns 1, 2, 3, 4 (volume, open, high, low)
+            y_array.append(values[i, 0])  # To predict next 'close' value
+
+        x_array, y_array = np.array(x_array), np.array(y_array)
+        x_array = np.reshape(x_array, (x_array.shape[0], x_array.shape[1], 1))
+
+        return x_array, y_array
+    
+    def train_model(self, model: tf.keras.models.Sequential, x_train: np.ndarray, y_train: np.ndarray, epochs: int, x_test = None, y_test = None, log_name = None):
+        """
         
-        for metric in range(len(MODEL_METRICS)):
-            metric_values[metric].append(metrics[metric])
-        print(f'Finished symbol: {symbol}')
-        print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
-    print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
-
-    print(f'For model: ({model_path}):')
-    for metric in range(len(MODEL_METRICS)):
-        print(f'{MODEL_METRICS[metric]} AVG: {sum(metric_values[metric])/len(metric_values[metric])}')
-
-
-def analyze_market_stocks(model_path: str, input_window:int, future: int = 10, download_all: bool = False):
-    if not os.path.isdir(model_path):
-        print(f"Model {model_path} doesn't exist")
-        return
-    model = load_model(model_path)
-
-    symbols = load_existing_data(None, settings.INTERVAL)
-    if not isinstance(symbols, pd.DataFrame):
-        # if not online:
-        #     print("Empty symbols file. Run in online mode to download it.")
-        #     return
-        from tradinga.api_helper import get_nasdaq_symbols
-        print("Empty symbols file. Trying to download it now.")
-        symbols = get_nasdaq_symbols()
-        save_data_to_csv(data=symbols)
-
-    max_growth = 0
-    stonks_symbol = ''
-    total_symbols = symbols['symbol'].size
-    current_pos = 0
-    for symbol in symbols['symbol']:
-        current_pos += 1
-        if download_all:
-            try:
-                download_newest_data(symbol=symbol,interval=settings.INTERVAL)
-            except:
-                print(f'Failed to download {symbol}. Skipping...')
-                continue
+        Train model
+        """
+        # TODO: Add description
+        if isinstance(log_name, str):
+            log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + log_name
+        else:
+            log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1, write_images=True)
         
-        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
-        if not isinstance(data, pd.DataFrame):
-            continue
-
-        try:
-            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
-        except:
-            print(f'Failed to download {symbol}. Skipping...')
-            continue
-        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
-        if len(data) < input_window:
-            print(f"{symbol} has not enough data points")
-            continue
-
-        metrics = get_model_metrics(data=data, model=model, input_window=input_window)
-        if not isinstance(metrics, list):
-            raise Exception("Looks like there is only one model metric or something is wrong!")
-        # if len(metrics) != len(MODEL_METRICS):
-        #     raise Exception("Different count of model metrics detected!")
-        
-        # First metric will be loss value
-        if metrics[0] < 0.01:
-            output_data = predict_simple_next_values(data=data.iloc[len(data)-input_window:len(data)], model=model,look_back=input_window,next=future)
-            output_data = np.squeeze(output_data) # We got rows as data in column not one row
-
-            growth = output_data[-1]/data['close'].iloc[-1] # predicted / last price
-            if max_growth < growth:
-                max_growth = growth
-                stonks_symbol = symbol[:]
-        
-        print(f'Finished symbol: {symbol}')
-        print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
-    print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
-
-    print(f'On symbol {stonks_symbol} there is possible growth {round(max_growth*100-100, 2)}% after {future} time units')
+        if isinstance(x_test, np.ndarray) and isinstance(y_test, np.ndarray):
+            if self.use_earlystop:
+                earlystop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=self.earlystop_patience, verbose=1, mode='auto')
+                model.fit(x_train,
+                            y_train,
+                            epochs=epochs,
+                            batch_size=self.batch_size,
+                            validation_data=(x_test, y_test),
+                            callbacks=[tensorboard_callback, earlystop])
+            else:
+                model.fit(x_train,
+                            y_train,
+                            epochs=epochs,
+                            batch_size=self.batch_size,
+                            validation_data=(x_test, y_test),
+                            callbacks=[tensorboard_callback])
+        else:
+            model.fit(x_train,
+                        y_train,
+                        epochs=epochs,
+                        batch_size=self.batch_size,
+                        callbacks=[tensorboard_callback])

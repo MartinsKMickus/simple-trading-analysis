@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
-from tradinga.ai_models import load_model, mape_loss, model_v3
+from tradinga_old.ai_models import load_model, mape_loss, model_v3
 
 import tradinga.settings as settings
 

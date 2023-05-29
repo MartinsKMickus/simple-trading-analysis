@@ -5,7 +5,7 @@ import sys
 import pandas as pd
 import tradinga.settings as settings
 
-from tradinga.data_helper import download_newest_data, get_data_interval, load_existing_data, save_data_to_csv
+from tradinga_old.data_helper import download_newest_data, get_data_interval, load_existing_data, save_data_to_csv
 
 
 parser = argparse.ArgumentParser(description='Simple Trading Analysis')
@@ -99,7 +99,7 @@ if args.action == 'update':
         sys.exit(0)
     symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
-        from tradinga.api_helper import get_nasdaq_symbols
+        from tradinga_old.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
         symbols = get_nasdaq_symbols()
         save_data_to_csv(data=symbols)
@@ -108,13 +108,13 @@ if args.action == 'update':
     for symbol in symbols['symbol']:
         download_newest_data(symbol, settings.INTERVAL)
 elif args.action == 'ai':
-    from tradinga.ai_manager import make_model
+    from tradinga_old.ai_manager import make_model
     model_path = args.model_path
     input_window = args.window
     epochs = args.epochs
     symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
-        from tradinga.api_helper import get_nasdaq_symbols
+        from tradinga_old.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
         symbols = get_nasdaq_symbols()
         save_data_to_csv(data=symbols)
@@ -165,7 +165,7 @@ elif args.action == 'ai':
             test_symbol = train_symbol
         full_data = None
 elif args.action == 'train':
-    from tradinga.ai_manager import make_model
+    from tradinga_old.ai_manager import make_model
     symbol = args.symbol
     model_path = args.model_path
     input_window = args.window
@@ -179,7 +179,7 @@ elif args.action == 'train':
     else:
         make_model(data=full_data, look_back=input_window, epochs=epochs, model_path=model_path)
 elif args.action == 'model':
-    from tradinga.ai_manager import test_model_performance
+    from tradinga_old.ai_manager import test_model_performance
     date_from = None
     date_to = None
     symbol = args.symbol
@@ -196,12 +196,12 @@ elif args.action == 'model':
     test_model_performance(model_path=model_path,input_window=input_window,data=filtered_data,start_ammount=capital)
         # TODO: Implement money graph
 elif args.action == 'model_metrics':
-    from tradinga.ai_manager import analyze_model_metrics
+    from tradinga_old.ai_manager import analyze_model_metrics
     model_path = args.model_path
     input_window = args.window
     analyze_model_metrics(model_path=model_path,input_window=input_window)
 elif args.action == 'predict':
-    from tradinga.ai_manager import draw_future
+    from tradinga_old.ai_manager import draw_future
     date_from = None
     date_to = None
     symbol = args.symbol
@@ -217,7 +217,7 @@ elif args.action == 'predict':
     filtered_data = get_data_interval(data=full_data, date_from=date_from, date_to=date_to)
     draw_future(model_path=model_path,input_window=input_window,data=filtered_data,predict=predict)
 elif args.action == 'predict_market':
-    from tradinga.ai_manager import analyze_market_stocks
+    from tradinga_old.ai_manager import analyze_market_stocks
     model_path = args.model_path
     predict = args.next
     input_window = args.window

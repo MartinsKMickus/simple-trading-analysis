@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 import tradinga.settings as settings
-from tradinga.api_helper import yfinance_get_data
+from tradinga_old.api_helper import yfinance_get_data
 
 DATA_DIR = settings.DATA_DIR
 STOCK_DIR = settings.STOCK_DIR

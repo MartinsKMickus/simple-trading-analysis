@@ -2,9 +2,9 @@ import os
 import unittest
 
 import pandas as pd
-from tradinga.api_helper import get_nasdaq_symbols
+from tradinga_old.api_helper import get_nasdaq_symbols
 
-from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
+from tradinga_old.data_helper import download_newest_data, load_existing_data, save_data_to_csv
 from tradinga.settings import STOCK_DIR
 
 class DataTests(unittest.TestCase):
