@@ -165,5 +165,6 @@ class DataManager:
 
         if online or not isinstance(data, pd.DataFrame):
             data = self.yfinance_get_data(symbol=symbol, interval=interval)
+            self.save_data_to_csv(data=data, file_name=file_path)
 
         return data

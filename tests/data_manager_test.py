@@ -7,7 +7,7 @@ import pandas as pd
 from tradinga.data_manager import DataManager
 from tradinga.settings import STOCK_DIR, TESTING_DIR
 
-class DataTests(unittest.TestCase):
+class DataManagerTests(unittest.TestCase):
 
     def test_constructor_and_symbol_list(self):
         if os.path.exists(f'{TESTING_DIR}/symbol_test_list.csv'):
@@ -41,12 +41,11 @@ class DataTests(unittest.TestCase):
         data_manager.save_data_to_csv(data=data, file_name=f'{TESTING_DIR}/{STOCK_DIR}/AAPL_1d.csv')
         saved_data = data_manager.get_symbol_data('AAPL', '1d')
         delta = datetime.datetime.now() - pd.to_datetime(saved_data['time'].max())
-        self.assertTrue(delta >= datetime.timedelta(days=100))
+        # Lets assume that longest market holidays are 5 days
+        self.assertTrue(delta < datetime.timedelta(days=5))
 
         data = data_manager.get_symbol_data('AAPL', '1d', online=True)
         data_manager.save_data_to_csv(data=data, file_name=f'{TESTING_DIR}/{STOCK_DIR}/AAPL_1d.csv')
         saved_data = data_manager.get_symbol_data('AAPL', '1d')
         delta = datetime.datetime.now() - pd.to_datetime(saved_data['time'].max())
-        # Lets assume that longest market holidays are 5 days
-        self.assertTrue(delta < datetime.timedelta(days=5))
         self.assertFalse(saved_data['time'].duplicated().any())
