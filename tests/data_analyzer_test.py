@@ -32,5 +32,13 @@ class DataAnalyzerTests(unittest.TestCase):
         analyzer = DataAnalyzer(data_dir=TESTING_DIR)
         analyzer.data_manager.get_nasdaq_symbols()
         analyzer.ai_manager.load_model()
+        analyzer.ai_manager.epochs = 5
         analyzer.random_training(1)
+
+    def test_random_valuation(self):
+        if not os.path.exists(f'{TESTING_DIR}/models'):
+            self.test_random_training
+        analyzer = DataAnalyzer(data_dir=TESTING_DIR)
+        analyzer.data_manager.get_nasdaq_symbols()
+        analyzer.ai_manager.load_model()
         analyzer.random_valuation(1)

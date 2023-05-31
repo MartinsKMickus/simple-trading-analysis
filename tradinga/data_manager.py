@@ -36,7 +36,7 @@ class DataManager:
         symbol_data = None
         if os.path.exists(symbol_file):
             symbol_data = pd.read_csv(symbol_file)
-        if online or not isinstance(symbol_file, pd.DataFrame):
+        if online or not isinstance(symbol_data, pd.DataFrame):
             import requests
 
             url = "http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"

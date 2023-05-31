@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
+import tqdm
 
 from tradinga.settings import DATA_DIR
 from keras.utils import custom_object_scope
@@ -24,8 +25,6 @@ class AIManager:
     use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
-    ai_location = ''
-    model = None
 
     # Metrics
     direction_metric = True
@@ -33,8 +32,6 @@ class AIManager:
     def __init__(self, data_dir: str = DATA_DIR, one_hot_encoding_count: int = 0) -> None:
         self.ai_location = data_dir + "/models/" + f"MODEL_{self.window}"
         self.one_hot_encoding_count = one_hot_encoding_count
-        if os.path.isdir(self.ai_location):
-            self.model = self.load_model()
 
     def scale_for_ai(self, data: pd.DataFrame) -> np.ndarray:
         """
@@ -241,14 +238,15 @@ class AIManager:
         input = values[-self.window:]
         input = np.expand_dims(values[-self.window:], axis=0)
         # predict future values
-        predicted = self.model.predict(input, verbose='auto')
+        predicted = self.model.predict(input, verbose='0')
         
         return predicted[0][0]
 
     def get_metrics_on_data(self, values: np.ndarray):
         correct_direction_count = 0
+        value_count = len(values) - 1
 
-        for i in range(self.window, len(values) - 1):
+        for i in tqdm.tqdm(range(self.window, len(values) - 1), desc='Calculating metrics'):
             predicted = self.predict_next_value(values[i - self.window : i])
             actual_value = values[i, 3]
             previous_value = values[i-1, 3]
@@ -257,5 +255,5 @@ class AIManager:
                     correct_direction_count += 1
                 elif predicted < previous_value and actual_value < previous_value:
                     correct_direction_count += 1
-        
+
         return correct_direction_count/(len(values) - 1 - self.window)
