@@ -73,7 +73,7 @@ class DataManager:
         return filtered_data
 
     def yfinance_get_data(
-        self, symbol: str, interval: str, max_tries=2, try_sleep=10
+        self, symbol: str, interval: str, max_tries=2, try_sleep=10, show_symbol: bool=False
     ) -> pd.DataFrame:
         """
         Downloads data for provided symbol and interval.
@@ -92,7 +92,8 @@ class DataManager:
         else:
             from_date = datetime.datetime.now() - datetime.timedelta(days=3000)
 
-        print(f"Downloading data for {symbol}")
+        if show_symbol:
+            print(f"Downloading data for {symbol}")
         tries = 0
         while True:
             try:
@@ -167,4 +168,5 @@ class DataManager:
             data = self.yfinance_get_data(symbol=symbol, interval=interval)
             self.save_data_to_csv(data=data, file_name=file_path)
 
+        data = data.reset_index(drop=True)
         return data

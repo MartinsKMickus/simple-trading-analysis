@@ -1,10 +1,14 @@
 import datetime
 import os
+import warnings
 from matplotlib import pyplot as plt
 
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+
+from tradinga.custom_loss import direction_loss
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 import tqdm
 
@@ -22,16 +26,23 @@ class AIManager:
     one_hot_encoding_count = 0
     batch_size = 64
     epochs = 200
-    use_earlystop = False
+    use_earlystop = True
     earlystop_patience = 50
     scaler = MinMaxScaler()
+    custom_scaler = False
+    model = None
 
     # Metrics
     direction_metric = True
 
-    def __init__(self, data_dir: str = DATA_DIR, one_hot_encoding_count: int = 0) -> None:
-        self.ai_location = data_dir + "/models/" + f"MODEL_{self.window}"
+    def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None) -> None:
+        self.ai_location = data_dir + "/models/" + f"MODEL_{model_name}{self.window}"
         self.one_hot_encoding_count = one_hot_encoding_count
+        if isinstance(data_min, np.ndarray) and isinstance(data_max, np.ndarray):
+            combined_array = np.column_stack((data_min, data_max))
+            combined_array = combined_array.T
+            self.scaler.fit(combined_array)
+            self.custom_scaler = True
 
     def scale_for_ai(self, data: pd.DataFrame) -> np.ndarray:
         """
@@ -44,8 +55,12 @@ class AIManager:
             scaled data (np.ndarray)
 
         """
-        without_time = data.drop("time", axis=1)
-        return self.scaler.fit_transform(without_time)
+        without_time = np.array(data.drop("time", axis=1))
+        if self.custom_scaler:
+            return self.scaler.transform(without_time)
+        else:
+            return self.scaler.fit_transform(without_time)
+        
 
     def scale_back_array(self, values: np.ndarray):
         """
@@ -101,7 +116,7 @@ class AIManager:
 
         for i in range(self.window, len(values) - 1):
             x_array.append(
-                values[i - self.window : i, [0, 1, 2, 3, 4, 5]]
+                values[i - self.window : i]
             )
             y_array.append(values[i, 3])  # To predict next 'close' value
 
@@ -109,13 +124,15 @@ class AIManager:
 
         return x_array, y_array
 
-    # def get_one_hot_encoding(self, x_array: np.ndarray, one_hot_encoding: int = 0):
-    #     # Create one-hot vector for the stock ID
-    #     stock_one_hot = np.zeros((len(x_array), self.one_hot_encoding_count))
-    #     stock_one_hot[:, one_hot_encoding] = 1
-
-    #     # Concatenate one-hot vector to x_array
-    #     return np.concatenate((x_array, np.tile(stock_one_hot, (self.window, 1, 1))), axis=2)
+    def get_one_hot_encoding(self, values: np.ndarray, one_hot_encoding: int = 0):
+        if self.one_hot_encoding_count < one_hot_encoding:
+            raise Exception(f'One hot encoding not possible. Provided index {one_hot_encoding} but saved index count is: {self.one_hot_encoding_count}')
+        # One hot encoding + 1 because 0 index will stand for unknown stock
+        symbol_encoded = tf.one_hot(one_hot_encoding, depth=self.one_hot_encoding_count)
+        symbol_encoded_np = np.array(symbol_encoded) # Convert to NumPy array
+        x_new = np.expand_dims(values, axis=tuple(range(-self.one_hot_encoding_count, 0)))
+        # reshaped_encoding = symbol_encoded_np[:, np.newaxis]
+        return values + symbol_encoded_np #reshaped_encoding
 
     def model_structure(self, i_shape, output=1):
         model = tf.keras.models.Sequential()
@@ -124,25 +141,22 @@ class AIManager:
                 units=64, return_sequences=True, input_shape=(i_shape)
             )
         )
-        model.add(tf.keras.layers.LSTM(units=16))
-        model.add(tf.keras.layers.Dense(128))
+        model.add(tf.keras.layers.LSTM(units=128))
         model.add(tf.keras.layers.BatchNormalization())
-        model.add(tf.keras.layers.Dropout(0.1))
-        model.add(tf.keras.layers.Reshape((1, 128)))
-        model.add(tf.keras.layers.LSTM(units=8, return_sequences=True))
-        model.add(tf.keras.layers.LSTM(units=4))
-        model.add(tf.keras.layers.Dense(4))
-        model.add(tf.keras.layers.BatchNormalization())
+        model.add(tf.keras.layers.Dense(512))
+        model.add(tf.keras.layers.Reshape((1, 512)))
+        model.add(tf.keras.layers.LSTM(units=8))
+        model.add(tf.keras.layers.Dense(16))
         model.add(tf.keras.layers.Dense(units=output))
-        model.compile(optimizer="adam", loss="mean_squared_error", metrics=["mae"])
+        model.compile(optimizer="adam", loss=direction_loss, metrics=["mean_squared_error", "mae"])
         model.summary()
         return model
 
     def load_model(self):
         # TODO: Add description
         if os.path.exists(self.ai_location):
-            # with custom_object_scope({'direction_sensitive_loss': direction_sensitive_loss, 'mape_loss': mape_loss}):
-            self.model = tf.keras.models.load_model(self.ai_location)
+            with custom_object_scope({'direction_loss': direction_loss}):
+                self.model = tf.keras.models.load_model(self.ai_location)
 
     def save_model(self):
         # TODO: Add description
@@ -191,7 +205,7 @@ class AIManager:
         else:
             log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         tensorboard_callback = tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir, histogram_freq=1, write_images=True
+            log_dir=log_dir, histogram_freq=1, write_images=False
         )
         # if isinstance(one_hot_encoding, np.ndarray):
         #     x_test = [x_test, one_hot_encoding]
@@ -242,11 +256,11 @@ class AIManager:
         
         return predicted[0][0]
 
-    def get_metrics_on_data(self, values: np.ndarray):
+    def get_metrics_on_data(self, values: np.ndarray, symbol: str = ''):
         correct_direction_count = 0
         value_count = len(values) - 1
 
-        for i in tqdm.tqdm(range(self.window, len(values) - 1), desc='Calculating metrics'):
+        for i in tqdm.tqdm(range(self.window, len(values) - 1), desc=f'Calculating metrics {symbol}'):
             predicted = self.predict_next_value(values[i - self.window : i])
             actual_value = values[i, 3]
             previous_value = values[i-1, 3]
