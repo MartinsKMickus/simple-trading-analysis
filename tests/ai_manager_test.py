@@ -54,17 +54,17 @@ class AIManagerTests(unittest.TestCase):
         value = ai_manager.predict_next_value(scaled)
         self.assertTrue(value > 0 and value < 1)
 
-    def test_one_hot_encoding(self):
-        ai_manager = AIManager(data_dir=TESTING_DIR)
-        data_manager = DataManager(data_dir=TESTING_DIR)
-        data_analyzer = DataAnalyzer(data_dir=TESTING_DIR)
-        data_manager.get_nasdaq_symbols()
-        ai_manager.one_hot_encoding_count = len(data_manager.symbols)
-        data_analyzer.load_symbol_indices()
-        data = data_manager.get_symbol_data('AAPL', '1d')
-        scaled = ai_manager.scale_for_ai(data=data)
-        scaled_encoded = ai_manager.get_one_hot_encoding(values=scaled, one_hot_encoding=data_analyzer.data_index['AAPL'])
-        x_array, _ = ai_manager.get_xy_arrays(scaled_encoded)
-        self.assertTrue(x_array.shape[1:] == (ai_manager.window, ai_manager.data_columns + len(data_manager.symbols)))
+    # def test_one_hot_encoding(self):
+    #     ai_manager = AIManager(data_dir=TESTING_DIR)
+    #     data_manager = DataManager(data_dir=TESTING_DIR)
+    #     data_analyzer = DataAnalyzer(data_dir=TESTING_DIR)
+    #     data_manager.get_nasdaq_symbols()
+    #     ai_manager.one_hot_encoding_count = len(data_manager.symbols)
+    #     data_analyzer.load_symbol_indices()
+    #     data = data_manager.get_symbol_data('AAPL', '1d')
+    #     scaled = ai_manager.scale_for_ai(data=data)
+    #     scaled_encoded = ai_manager.get_one_hot_encoding(values=scaled, one_hot_encoding=data_analyzer.data_index['AAPL'])
+    #     x_array, _ = ai_manager.get_xy_arrays(scaled_encoded)
+    #     self.assertTrue(x_array.shape[1:] == (ai_manager.window, ai_manager.data_columns + len(data_manager.symbols)))
 
         

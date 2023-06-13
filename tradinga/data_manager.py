@@ -169,4 +169,5 @@ class DataManager:
             self.save_data_to_csv(data=data, file_name=file_path)
 
         data = data.reset_index(drop=True)
+        data["time"] = pd.to_datetime(data["time"], format="ISO8601")
         return data

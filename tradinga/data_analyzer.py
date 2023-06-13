@@ -1,5 +1,6 @@
 
 
+import datetime
 import json
 import os
 import pickle
@@ -11,13 +12,13 @@ import tensorflow as tf
 import tqdm
 from tradinga.ai_manager import AIManager
 from tradinga.data_manager import DataManager
-from tradinga.settings import DATA_DIR, MIN_DATA_CHECKS, STOCK_DIR
+from tradinga.settings import DATA_DIR, MIN_DATA_CHECKS, STOCK_DIR, SYMBOL_FILE
 
 
 class DataAnalyzer:
     data_index = {}
 
-    def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, window: int = 200) -> None:
+    def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, symbol_file: str = SYMBOL_FILE, window: int = 200) -> None:
         # Settings
         self.analyzer_name = analyzer_name
         self.data_dir = data_dir
@@ -32,19 +33,23 @@ class DataAnalyzer:
         self.features = 6
         self.min_data_checks = MIN_DATA_CHECKS
         self.data_manager = DataManager(data_dir=data_dir, stock_dir=stock_dir)
-        self.data_manager.get_nasdaq_symbols()
-        one_hot = 0 #len(self.data_manager.symbols)
+        self.data_manager.get_nasdaq_symbols(symbol_file=symbol_file)
+        # One hot encoding
+        self.one_hot = len(self.data_manager.symbols)
+        self.use_one_hot = False
 
         # AI Manager
+        # One hot encoding included
         if settings:
             print(f'Settings loaded!\n Applied min: {self.min_values}\n Applied max: {self.max_values}')
-            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, data_min=np.array(self.min_values), data_max=np.array(self.max_values), one_hot_encoding_count=one_hot)
+            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, data_min=np.array(self.min_values), data_max=np.array(self.max_values), one_hot_encoding_count=self.one_hot)
         else:
-            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=one_hot)
+            print(f'WARNING! Settings not loaded!')
+            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot)
         self.ai_manager.window = self.window
         self.ai_manager.data_columns = self.features
 
-        # Lats initializations
+        # Last initializations
         self.load_symbol_indices()
         
 
@@ -79,6 +84,14 @@ class DataAnalyzer:
                 self.data_index = json.load(file)
 
     def get_min_max_values(self, force = False):
+        """
+        Filters out stocks which values exceeds min max scaler interval.
+        Probably reasonable price range would be somewhere around 0-500
+        Volume can't be predicted that easy because of events like 2008
+
+        Args:
+            force (bool): Overrwrite existing file
+        """
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json') and not force:
             print('Settings already stored!!!')
         if not isinstance(self.data_manager.symbols, list):
@@ -151,7 +164,12 @@ class DataAnalyzer:
                 i += 1
                 continue
             scaled = self.ai_manager.scale_for_ai(data=loaded_data)
-            metrics.append([shuffled_list[i], self.ai_manager.get_metrics_on_data(scaled, symbol=shuffled_list[i])])
+            # One hot encoding
+            if self.use_one_hot:
+                one_hot_encoding = self.ai_manager.get_one_hot_encoding(one_hot_encoding=self.data_index[shuffled_list[i]])
+                metrics.append([shuffled_list[i], self.ai_manager.get_metrics_on_data(scaled, symbol=shuffled_list[i], one_hot_encoding=one_hot_encoding)])
+            else:
+                metrics.append([shuffled_list[i], self.ai_manager.get_metrics_on_data(scaled, symbol=shuffled_list[i])])
             i += 1
         return metrics
 
@@ -161,7 +179,13 @@ class DataAnalyzer:
             return
         if not isinstance(self.ai_manager.model, tf.keras.Model):
             print(f'Creating new model because no model exist: {self.ai_manager.ai_location}')
-            self.ai_manager.create_model((self.window, self.features + self.ai_manager.one_hot_encoding_count))
+
+            # One hot encoding
+            if self.use_one_hot:
+
+                self.ai_manager.create_model2(data_shape=(self.window, self.features), category_shape=(self.one_hot))
+            else:
+                self.ai_manager.create_model((self.window, self.features))
             self.ai_manager.save_model()
 
         shuffled_list = self.data_manager.symbols.copy()
@@ -181,6 +205,10 @@ class DataAnalyzer:
         y_arr = None
         x_test_arr = None
         y_test_arr = None
+        # One hot encoding
+        one_hot_train = None
+        one_hot_test = None
+
         while i < symbol_count and i < len(shuffled_list):
             if shuffled_list[i] in self.except_symbols:
                 symbol_count += 1
@@ -194,7 +222,9 @@ class DataAnalyzer:
                     test_symbol = shuffled_list[i]
                 try:
                     test_scaled = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol=test_symbol, interval=self.interval))
-                    # test_scaled = self.ai_manager.get_one_hot_encoding(values=test_scaled, one_hot_encoding=self.data_index[test_symbol])
+                    # One hot encoding
+                    if self.use_one_hot:
+                        one_hot_test = self.ai_manager.get_one_hot_encoding(one_hot_encoding=self.data_index[test_symbol])
                     x_test_arr, y_test_arr = self.ai_manager.get_xy_arrays(values=test_scaled)
                 except Exception as e:
                     print(f'Skipping symbol {shuffled_list[i]}. Reason:')
@@ -206,7 +236,9 @@ class DataAnalyzer:
 
             try:
                 scaled = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol=train_symbol, interval=self.interval))
-                # scaled = self.ai_manager.get_one_hot_encoding(values=scaled, one_hot_encoding=self.data_index[train_symbol])
+                # One hot encoding
+                if self.use_one_hot:
+                    one_hot_train = self.ai_manager.get_one_hot_encoding(one_hot_encoding=self.data_index[train_symbol])
                 x_arr, y_arr = self.ai_manager.get_xy_arrays(values=scaled)
             except Exception as e:
                 print(f'Skipping symbol {shuffled_list[i]}. Reason:')
@@ -218,7 +250,11 @@ class DataAnalyzer:
 
             if validate:
                 print(f'Train:{train_symbol} Test:{test_symbol}')
-                self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, y_test=y_test_arr)
+                # One hot encoding
+                if self.use_one_hot:
+                    self.ai_manager.train_model(x_train=x_arr, one_hot=one_hot_train, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, one_hot_test=one_hot_test, y_test=y_test_arr)
+                else:
+                    self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, y_test=y_test_arr)
                 if isinstance(test_symbol, str):
                     test_symbol = train_symbol[:]
                 else:
@@ -227,6 +263,10 @@ class DataAnalyzer:
             else:
                 print(f'Train:{train_symbol}')
                 train_symbol = None
-                self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}')
+                # One hot encoding
+                if self.use_one_hot:
+                    self.ai_manager.train_model(x_train=x_arr, one_hot=one_hot_train, y_train=y_arr, log_name=f'Train{train_symbol}')
+                else:
+                    self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}')
             self.ai_manager.save_model()
             # i += 1

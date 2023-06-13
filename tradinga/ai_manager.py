@@ -86,12 +86,19 @@ class AIManager:
             scaled back value
 
         """
-        temp_array = np.zeros(self.data_columns)
-        temp_array[self.desired_column_index] = value
+        if isinstance(value, np.ndarray):
+            temp_array = np.zeros(shape=(value.shape[0], self.data_columns))
+            value = np.squeeze(value)
+            temp_array[:, self.desired_column_index] = value
+        else:
+            temp_array = np.zeros(shape=self.data_columns)
+            temp_array[self.desired_column_index] = value
+        print(value)
         # Reshape the array to match the expected shape for inverse transformation
-        temp_array = temp_array.reshape(1, -1)
+        # temp_array = temp_array.reshape(1, -1)
         inverse_transformed_array = self.scale_back_array(temp_array)
         final_predicted_value = inverse_transformed_array[:, self.desired_column_index]
+        print(final_predicted_value)
         return final_predicted_value
 
     def get_xy_arrays(
@@ -124,15 +131,16 @@ class AIManager:
 
         return x_array, y_array
 
-    def get_one_hot_encoding(self, values: np.ndarray, one_hot_encoding: int = 0):
+    # One hot encoding
+    def get_one_hot_encoding(self, one_hot_encoding: int = 0):
         if self.one_hot_encoding_count < one_hot_encoding:
             raise Exception(f'One hot encoding not possible. Provided index {one_hot_encoding} but saved index count is: {self.one_hot_encoding_count}')
         # One hot encoding + 1 because 0 index will stand for unknown stock
         symbol_encoded = tf.one_hot(one_hot_encoding, depth=self.one_hot_encoding_count)
         symbol_encoded_np = np.array(symbol_encoded) # Convert to NumPy array
-        x_new = np.expand_dims(values, axis=tuple(range(-self.one_hot_encoding_count, 0)))
-        # reshaped_encoding = symbol_encoded_np[:, np.newaxis]
-        return values + symbol_encoded_np #reshaped_encoding
+        # x_new = np.expand_dims(values, axis=tuple(range(-self.one_hot_encoding_count, 0)))
+        # symbol_encoded_np = symbol_encoded_np[:, np.newaxis]
+        return symbol_encoded_np #reshaped_encoding
 
     def model_structure(self, i_shape, output=1):
         model = tf.keras.models.Sequential()
@@ -148,6 +156,29 @@ class AIManager:
         model.add(tf.keras.layers.LSTM(units=8))
         model.add(tf.keras.layers.Dense(16))
         model.add(tf.keras.layers.Dense(units=output))
+        model.compile(optimizer="adam", loss="mean_squared_error", metrics=[direction_loss, "mae"])
+        model.summary()
+        return model
+    
+    # One hot encoding
+    def model_structure2(self, data_shape, category_shape, output=1):
+        # Define the input layers
+        existing_input = tf.keras.Input(shape=data_shape)
+        categorical_input = tf.keras.Input(shape=category_shape)
+        categorical_input = tf.keras.layers.Reshape((1, 5254))(categorical_input)
+        model = tf.keras.models.Sequential()
+        x = tf.keras.layers.LSTM(units=64, return_sequences=True)(existing_input)
+        x = tf.keras.layers.LSTM(units=128)(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dense(512)(x)
+        x = tf.keras.layers.Reshape((1, 512))(x)
+        # Concatenate the existing_input and categorical_input
+        x = tf.keras.layers.Concatenate()([x, categorical_input])
+        # x = tf.keras.layers.Concatenate()([x, tf.keras.layers.Reshape((1, self.one_hot_encoding_count))(categorical_input)])
+        x = tf.keras.layers.LSTM(units=8)(x)
+        x = tf.keras.layers.Dense(16)(x)
+        output = tf.keras.layers.Dense(units=output)(x)
+        model = tf.keras.Model(inputs=[existing_input, categorical_input], outputs=output)
         model.compile(optimizer="adam", loss=direction_loss, metrics=["mean_squared_error", "mae"])
         model.summary()
         return model
@@ -169,6 +200,11 @@ class AIManager:
         # TODO: Add description
         self.model = self.model_structure(i_shape=shape)
 
+    # One hot encoding
+    def create_model2(self, data_shape, category_shape):
+        # TODO: Add description
+        self.model = self.model_structure2(data_shape=data_shape, category_shape=category_shape)
+
     def get_evaluation(self, model: tf.keras.models.Sequential, x_test: np.ndarray, y_test: np.ndarray):
         # TODO: Add description
         return model.evaluate(x_test, y_test) #, verbose=0)
@@ -177,6 +213,8 @@ class AIManager:
         self,
         x_train: np.ndarray,
         y_train: np.ndarray,
+        one_hot=None, # One hot encoding
+        one_hot_test=None, # One hot encoding
         x_test=None,
         y_test=None,
         log_name=None,
@@ -209,6 +247,15 @@ class AIManager:
         )
         # if isinstance(one_hot_encoding, np.ndarray):
         #     x_test = [x_test, one_hot_encoding]
+        if isinstance(one_hot, np.ndarray):
+            one_hot = np.expand_dims(one_hot, axis=0)  # Expand dimensions along the samples axis
+            one_hot = np.repeat(one_hot, len(x_train), axis=0)  # Repeat the array for each sample
+            # one_hot = np.expand_dims(one_hot[-self.window:], axis=0)
+
+        if isinstance(one_hot_test, np.ndarray):
+            one_hot_test = np.expand_dims(one_hot_test, axis=0)  # Expand dimensions along the samples axis
+            one_hot_test = np.repeat(one_hot_test, len(x_train), axis=0)  # Repeat the array for each sample
+            # one_hot_test = np.expand_dims(one_hot_test[-self.window:], axis=0)
 
         if isinstance(x_test, np.ndarray) and isinstance(y_test, np.ndarray):
             if self.use_earlystop:
@@ -244,30 +291,67 @@ class AIManager:
                 callbacks=[tensorboard_callback],
             )
 
-    def predict_next_value(self, values: np.ndarray) -> int:
+    def predict_next_value(self, values: np.ndarray, one_hot_encoding = None) -> int:
         if not isinstance(self.model, tf.keras.Model):
             print("Predict called but model does not exist!")
-            raise Exception("No model trained")
+            raise Exception("No model loaded")
         
         input = values[-self.window:]
         input = np.expand_dims(values[-self.window:], axis=0)
         # predict future values
-        predicted = self.model.predict(input, verbose='0')
+        # One hot encoding
+        if isinstance(one_hot_encoding, np.ndarray):
+            predicted = self.model.predict([input, one_hot_encoding], verbose='0')
+        else:
+            predicted = self.model.predict(input, verbose='0')
         
         return predicted[0][0]
+    
+    def predict_all_values(self, values: np.ndarray, one_hot_encoding = None) -> np.ndarray:
+        if not isinstance(self.model, tf.keras.Model):
+            print("Predict called but model does not exist!")
+            raise Exception("No model loaded")
+        
+        x_array = []
+        for x in range(self.window, len(values)):
+            x_array.append(values[x-self.window:x])
 
-    def get_metrics_on_data(self, values: np.ndarray, symbol: str = ''):
+        values = np.array(x_array)
+        # values = np.reshape(x_array, (x_array.shape[0], x_array.shape[1], 1))
+
+        if isinstance(one_hot_encoding, np.ndarray):
+            predicted = self.model.predict([values, one_hot_encoding], verbose='0')
+        else:
+            predicted = self.model.predict(values, verbose='0')
+
+        return predicted
+
+    def get_metrics_on_data(self, values: np.ndarray, symbol: str = '', one_hot_encoding = None):
         correct_direction_count = 0
+        # - 1 Because last value is for comparison only
         value_count = len(values) - 1
+        max_change = 0.3
+        print(f'Required change: {max_change}')
 
         for i in tqdm.tqdm(range(self.window, len(values) - 1), desc=f'Calculating metrics {symbol}'):
-            predicted = self.predict_next_value(values[i - self.window : i])
-            actual_value = values[i, 3]
-            previous_value = values[i-1, 3]
+            # One hot encoding
+            if isinstance(one_hot_encoding, np.ndarray):
+                predicted = self.predict_next_value(values[i - self.window : i], one_hot_encoding=one_hot_encoding)
+            else:
+                predicted = self.predict_next_value(values[i - self.window : i])
+            actual_value = self.scale_back_value(values[i, 3])
+            previous_value = self.scale_back_value(values[i-1, 3])
+            predicted = self.scale_back_value(predicted)
             if self.direction_metric:
+                # Check precision only if predicted change is large enough
+                if abs((predicted-previous_value)/previous_value) > max_change:
+                    value_count -= 1
+                    continue
                 if predicted > previous_value and actual_value > previous_value:
                     correct_direction_count += 1
                 elif predicted < previous_value and actual_value < previous_value:
                     correct_direction_count += 1
 
-        return correct_direction_count/(len(values) - 1 - self.window)
+        if value_count - self.window == 0:
+            return 0
+        return {'precision': correct_direction_count/(value_count - self.window), 'all values': len(values) - 1, 'enough change for': value_count}
