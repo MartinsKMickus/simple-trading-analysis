@@ -136,3 +136,4 @@ logs*
 temp
 .vscode
 test_data
+.VS*

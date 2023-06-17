@@ -1,5 +1,7 @@
 import datetime
 import os
+import signal
+import sys
 import warnings
 from matplotlib import pyplot as plt
 
@@ -9,6 +11,9 @@ from sklearn.preprocessing import MinMaxScaler
 
 from tradinga.custom_loss import direction_loss
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import absl.logging
+absl.logging.set_verbosity(absl.logging.ERROR)
+
 import tensorflow as tf
 import tqdm
 
@@ -17,7 +22,6 @@ from keras.utils import custom_object_scope
 
 
 MODEL_METRICS = ["mean_squared_error", "direction_sensitive_loss", "mae", "mape_loss"]
-
 
 class AIManager:
     data_columns = 6
@@ -34,6 +38,7 @@ class AIManager:
 
     # Metrics
     direction_metric = True
+    valuation_metrics = ['Correct trend loss']
 
     def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None) -> None:
         self.ai_location = data_dir + "/models/" + f"MODEL_{model_name}{self.window}"
@@ -93,12 +98,11 @@ class AIManager:
         else:
             temp_array = np.zeros(shape=self.data_columns)
             temp_array[self.desired_column_index] = value
-        print(value)
+            temp_array = temp_array.reshape(1, -1)
         # Reshape the array to match the expected shape for inverse transformation
-        # temp_array = temp_array.reshape(1, -1)
+
         inverse_transformed_array = self.scale_back_array(temp_array)
         final_predicted_value = inverse_transformed_array[:, self.desired_column_index]
-        print(final_predicted_value)
         return final_predicted_value
 
     def get_xy_arrays(
@@ -125,7 +129,7 @@ class AIManager:
             x_array.append(
                 values[i - self.window : i]
             )
-            y_array.append(values[i, 3])  # To predict next 'close' value
+            y_array.append(values[i, self.desired_column_index])  # To predict next 'close' value
 
         x_array, y_array = np.array(x_array), np.array(y_array)
 
@@ -146,15 +150,15 @@ class AIManager:
         model = tf.keras.models.Sequential()
         model.add(
             tf.keras.layers.LSTM(
-                units=64, return_sequences=True, input_shape=(i_shape)
+                units=128, return_sequences=True, input_shape=(i_shape)
             )
         )
-        model.add(tf.keras.layers.LSTM(units=128))
-        model.add(tf.keras.layers.BatchNormalization())
+        model.add(tf.keras.layers.LSTM(units=256))
+        model.add(tf.keras.layers.Dense(1024))
+        # model.add(tf.keras.layers.Reshape((1, 2048)))
+        # model.add(tf.keras.layers.LSTM(units=64))
+        # model.add(tf.keras.layers.Dense(512))
         model.add(tf.keras.layers.Dense(512))
-        model.add(tf.keras.layers.Reshape((1, 512)))
-        model.add(tf.keras.layers.LSTM(units=8))
-        model.add(tf.keras.layers.Dense(16))
         model.add(tf.keras.layers.Dense(units=output))
         model.compile(optimizer="adam", loss="mean_squared_error", metrics=[direction_loss, "mae"])
         model.summary()
@@ -205,9 +209,11 @@ class AIManager:
         # TODO: Add description
         self.model = self.model_structure2(data_shape=data_shape, category_shape=category_shape)
 
-    def get_evaluation(self, model: tf.keras.models.Sequential, x_test: np.ndarray, y_test: np.ndarray):
+    def get_evaluation(self, x_test: np.ndarray, y_test: np.ndarray) -> list:
         # TODO: Add description
-        return model.evaluate(x_test, y_test) #, verbose=0)
+        if isinstance(self.model, tf.keras.Model):
+            return list(self.model.evaluate(x_test, y_test, verbose='0'))
+        return [0]
 
     def train_model(
         self,
@@ -243,7 +249,7 @@ class AIManager:
         else:
             log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         tensorboard_callback = tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir, histogram_freq=1, write_images=False
+            log_dir=log_dir, histogram_freq=1, write_images=True
         )
         # if isinstance(one_hot_encoding, np.ndarray):
         #     x_test = [x_test, one_hot_encoding]
@@ -265,31 +271,37 @@ class AIManager:
                     verbose=1,
                     mode="auto",
                 )
-                self.model.fit(
-                    x_train,
-                    y_train,
-                    epochs=self.epochs,
-                    batch_size=self.batch_size,
-                    validation_data=(x_test, y_test),
-                    callbacks=[tensorboard_callback, earlystop],
-                )
+                for _ in tqdm.tqdm(range(self.epochs), unit='epoch', desc='Progress'):
+                    self.model.fit(
+                        x_train,
+                        y_train,
+                        epochs=1,
+                        batch_size=self.batch_size,
+                        validation_data=(x_test, y_test),
+                        callbacks=[tensorboard_callback, earlystop],
+                        verbose='0',
+                    )
             else:
+                for _ in tqdm.tqdm(range(self.epochs), unit='epoch', desc='Progress'):
+                    self.model.fit(
+                        x_train,
+                        y_train,
+                        epochs=1,
+                        batch_size=self.batch_size,
+                        validation_data=(x_test, y_test),
+                        callbacks=[tensorboard_callback],
+                        verbose='0',
+                    )
+        else:
+            for _ in tqdm.tqdm(range(self.epochs), unit='epoch', desc='Progress'):
                 self.model.fit(
                     x_train,
                     y_train,
-                    epochs=self.epochs,
+                    epochs=1,
                     batch_size=self.batch_size,
-                    validation_data=(x_test, y_test),
                     callbacks=[tensorboard_callback],
+                    verbose='0',
                 )
-        else:
-            self.model.fit(
-                x_train,
-                y_train,
-                epochs=self.epochs,
-                batch_size=self.batch_size,
-                callbacks=[tensorboard_callback],
-            )
 
     def predict_next_value(self, values: np.ndarray, one_hot_encoding = None) -> int:
         if not isinstance(self.model, tf.keras.Model):
@@ -326,32 +338,38 @@ class AIManager:
 
         return predicted
 
-    def get_metrics_on_data(self, values: np.ndarray, symbol: str = '', one_hot_encoding = None):
+    def get_metrics_on_data(self, values: np.ndarray, symbol: str = '', one_hot_encoding = None) -> list[float]:
         correct_direction_count = 0
         # - 1 Because last value is for comparison only
         value_count = len(values) - 1
-        max_change = 0.3
-        print(f'Required change: {max_change}')
+        # max_change = 0.3
+        # print(f'Required change: {max_change}')
 
-        for i in tqdm.tqdm(range(self.window, len(values) - 1), desc=f'Calculating metrics {symbol}'):
-            # One hot encoding
-            if isinstance(one_hot_encoding, np.ndarray):
-                predicted = self.predict_next_value(values[i - self.window : i], one_hot_encoding=one_hot_encoding)
-            else:
-                predicted = self.predict_next_value(values[i - self.window : i])
-            actual_value = self.scale_back_value(values[i, 3])
-            previous_value = self.scale_back_value(values[i-1, 3])
-            predicted = self.scale_back_value(predicted)
-            if self.direction_metric:
-                # Check precision only if predicted change is large enough
-                if abs((predicted-previous_value)/previous_value) > max_change:
-                    value_count -= 1
-                    continue
-                if predicted > previous_value and actual_value > previous_value:
-                    correct_direction_count += 1
-                elif predicted < previous_value and actual_value < previous_value:
-                    correct_direction_count += 1
+        try:
+            for i in tqdm.tqdm(range(self.window, len(values) - 1), desc=f'Calculating metrics {symbol}'):
+                # One hot encoding
+                if isinstance(one_hot_encoding, np.ndarray):
+                    predicted = self.predict_next_value(values[i - self.window : i], one_hot_encoding=one_hot_encoding)
+                else:
+                    predicted = self.predict_next_value(values[i - self.window : i])
+                actual_value = self.scale_back_value(values[i, 3])
+                previous_value = self.scale_back_value(values[i-1, 3])
+                predicted = self.scale_back_value(predicted)
+                if self.direction_metric:
+                    # Check precision only if predicted change is large enough
+                    # if abs((predicted-previous_value)/previous_value) > max_change:
+                    #     value_count -= 1
+                    #     continue
+                    if predicted > previous_value and actual_value > previous_value:
+                        correct_direction_count += 1
+                    elif predicted < previous_value and actual_value < previous_value:
+                        correct_direction_count += 1
+
+        except KeyboardInterrupt:
+            print("Ctrl+C detected. Stopping the program...")
+            # Perform any necessary cleanup or finalization steps
+            sys.exit(0)
 
         if value_count - self.window == 0:
-            return 0
-        return {'precision': correct_direction_count/(value_count - self.window), 'all values': len(values) - 1, 'enough change for': value_count}
+            return [0]
+        return [correct_direction_count/(value_count - self.window)]

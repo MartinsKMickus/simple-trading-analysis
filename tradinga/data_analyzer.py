@@ -3,10 +3,12 @@
 import datetime
 import json
 import os
-import pickle
 import random
+import sys
 from matplotlib import pyplot as plt
 import numpy as np
+
+from tradinga.tools import bcolors, query_yes_no
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 import tqdm
@@ -17,6 +19,10 @@ from tradinga.settings import DATA_DIR, MIN_DATA_CHECKS, STOCK_DIR, SYMBOL_FILE
 
 class DataAnalyzer:
     data_index = {}
+    fit_times = 0
+    precision = 0
+    model_except = []
+    model_highest_loss = 0.14
 
     def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, symbol_file: str = SYMBOL_FILE, window: int = 200) -> None:
         # Settings
@@ -24,10 +30,11 @@ class DataAnalyzer:
         self.data_dir = data_dir
 
         # Additional settings
-        self.min_values = [10000, 10000, 10000, 10000, 10000, 10000]
-        self.max_values = [0, 0, 0, 0, 0, 0]
+        self.min_values = [0, 0, 0, 0, 0, 0]
+        self.max_values = [700, 700, 700, 700, 700, 1000000]
+        self.use_min_max = True
         self.except_symbols = []
-        settings = self.load_settings()
+        self.settings = self.load_settings()
         self.interval = '1d'
         self.window = window
         self.features = 6
@@ -40,9 +47,12 @@ class DataAnalyzer:
 
         # AI Manager
         # One hot encoding included
-        if settings:
-            print(f'Settings loaded!\n Applied min: {self.min_values}\n Applied max: {self.max_values}')
-            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, data_min=np.array(self.min_values), data_max=np.array(self.max_values), one_hot_encoding_count=self.one_hot)
+        if self.settings:
+            if self.use_min_max:
+                # print(f'Settings loaded!\n Applied min: {self.min_values}\n Applied max: {self.max_values}')
+                self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, data_min=np.array(self.min_values), data_max=np.array(self.max_values), one_hot_encoding_count=self.one_hot)
+            else:
+                self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot)
         else:
             print(f'WARNING! Settings not loaded!')
             self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot)
@@ -51,15 +61,36 @@ class DataAnalyzer:
 
         # Last initializations
         self.load_symbol_indices()
-        
 
     def load_settings(self):
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json'):
             with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', "r") as file:
-                loaded_data = json.load(file)
-                self.min_values, self.max_values, self.except_symbols = loaded_data
+                try:
+                    loaded_data = json.load(file)
+                    self.use_min_max, self.min_values, self.max_values, self.except_symbols, self.fit_times, self.precision, self.model_except, self.model_highest_loss = loaded_data
+                    print('Settings loaded!')
+                    if self.use_min_max:
+                        print(f'Applied min: {self.min_values}\nApplied max: {self.max_values}')
+                    print(f'Fit times: {self.fit_times}\nPrecision: {self.precision}')
+                    print(f'Highest loss: {self.model_highest_loss}')
+                except Exception:
+                    print(f'{bcolors.FAIL}Corrupted settings file {self.data_dir}/{self.analyzer_name}_settings.json{bcolors.ENDC}')
+                    if query_yes_no('Delete corrupted file?', default='no'):
+                        os.remove(f'{self.data_dir}/{self.analyzer_name}_settings.json')
+                        return False
+                    else:
+                        sys.exit(0)
             return True
         return False
+    
+    def save_settings(self, overwrite: bool = False):
+        if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json'):
+            if not overwrite:
+                print(f'Settings already saved. Use overwrite mode.')
+                return
+        with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', 'w') as file:
+            settings_definition = (self.use_min_max, self.min_values, self.max_values, self.except_symbols, self.fit_times, self.precision, self.model_except, self.model_highest_loss)
+            json.dump(settings_definition, file)
 
     def save_symbol_indices(self):
         """
@@ -93,18 +124,18 @@ class DataAnalyzer:
             force (bool): Overrwrite existing file
         """
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json') and not force:
-            print('Settings already stored!!!')
+            print('Settings already stored')
         if not isinstance(self.data_manager.symbols, list):
             print('No symbols loaded')
             return
         
-        for symbol in tqdm.tqdm(self.data_manager.symbols):#self.data_manager.symbols:
+        for symbol in tqdm.tqdm(self.data_manager.symbols, desc='Filtering out stocks'):#self.data_manager.symbols:
             loaded_data = self.data_manager.get_symbol_data(symbol=symbol, interval=self.interval)
 
             value = loaded_data['open'].max()
             if value > self.max_values[0]:
-                if value > 1000:
-                    print(f'{symbol} price is too high: {value}')
+                if value > 500:
+                    # print(f'{symbol} price is too high: {value}')
                     self.except_symbols.append(symbol)
                     continue
                 self.max_values[0] = loaded_data['open'].max()
@@ -137,13 +168,16 @@ class DataAnalyzer:
             if loaded_data['volume'].min() < self.max_values[5]:
                 self.min_values[5] = loaded_data['volume'].min()
         
+        data_min = [float(item) for item in self.min_values]
+        data_max = [float(item) for item in self.max_values]
+        self.min_values = data_min
+        self.max_values = data_max
+
+        print(f'Filtered out {len(self.except_symbols)} symbols out of {len(self.data_manager.symbols)}')
+        print(f'Applied min: {self.min_values}\nApplied max: {self.max_values}')
         # Save variables to a file
-        with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', 'w') as file:
-            data_min = [float(item) for item in self.min_values]
-            data_max = [float(item) for item in self.max_values]
-            self.min_values = data_min
-            self.max_values = data_max
-            json.dump((self.min_values, self.max_values, self.except_symbols), file)
+        # with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', 'w') as file: !!!!!!!!!!!!! DON'T USE
+        #     json.dump((self.min_values, self.max_values, self.except_symbols), file)
 
     def random_valuation(self, symbol_count = 50):
         if not isinstance(self.data_manager.symbols, list):
@@ -210,13 +244,38 @@ class DataAnalyzer:
         one_hot_test = None
 
         while i < symbol_count and i < len(shuffled_list):
-            if shuffled_list[i] in self.except_symbols:
+            if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except:
+                # print(f'Skipping symbol {shuffled_list[i]}. Symbol in except list')
+                symbol_count += 1
+                i += 1
+                continue
+            try:
+                prefiltering = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol=shuffled_list[i], interval=self.interval))
+                if len(prefiltering) < self.window + MIN_DATA_CHECKS:
+                    raise Exception(f'Not enough values {len(prefiltering)}')
+                # One hot encoding
+                if self.use_one_hot:
+                    prefiltering_one_hot = self.ai_manager.get_one_hot_encoding(one_hot_encoding=self.data_index[test_symbol])
+                x_prefilter, y_prefilter = self.ai_manager.get_xy_arrays(values=prefiltering)
+            except Exception as e:
+                print(f'Skipping symbol {shuffled_list[i]}. Reason:', end=' ')
+                print(e)
+                test_symbol = None
+                symbol_count += 1
+                i += 1
+                continue
+            # Optimizer
+            if self.model_highest_loss < self.ai_manager.get_evaluation(x_test=x_prefilter, y_test=y_prefilter)[0] and self.fit_times > 1:
+                # print(f'Skipping symbol {shuffled_list[i]}. Symbol evaluation value too low')
+                self.model_except.append(shuffled_list[i])
+                self.save_settings(overwrite=True)
                 symbol_count += 1
                 i += 1
                 continue
             if not isinstance(train_symbol, str):
                 train_symbol = shuffled_list[i]
                 i += 1
+                continue
             if validate:
                 if not isinstance(test_symbol, str):
                     test_symbol = shuffled_list[i]
@@ -227,7 +286,7 @@ class DataAnalyzer:
                         one_hot_test = self.ai_manager.get_one_hot_encoding(one_hot_encoding=self.data_index[test_symbol])
                     x_test_arr, y_test_arr = self.ai_manager.get_xy_arrays(values=test_scaled)
                 except Exception as e:
-                    print(f'Skipping symbol {shuffled_list[i]}. Reason:')
+                    print(f'Skipping symbol {shuffled_list[i]}. Reason:', end=' ')
                     print(e)
                     test_symbol = None
                     symbol_count += 1
@@ -241,32 +300,56 @@ class DataAnalyzer:
                     one_hot_train = self.ai_manager.get_one_hot_encoding(one_hot_encoding=self.data_index[train_symbol])
                 x_arr, y_arr = self.ai_manager.get_xy_arrays(values=scaled)
             except Exception as e:
-                print(f'Skipping symbol {shuffled_list[i]}. Reason:')
+                print(f'Skipping symbol {shuffled_list[i]}. Reason:', end=' ')
                 print(e)
                 train_symbol = None
                 symbol_count += 1
                 i += 1
                 continue
 
-            if validate:
-                print(f'Train:{train_symbol} Test:{test_symbol}')
-                # One hot encoding
-                if self.use_one_hot:
-                    self.ai_manager.train_model(x_train=x_arr, one_hot=one_hot_train, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, one_hot_test=one_hot_test, y_test=y_test_arr)
+            try:
+                if validate:
+                    print(f'Train:{train_symbol} Test:{test_symbol}')
+                    # One hot encoding
+                    if self.use_one_hot:
+                        self.ai_manager.train_model(x_train=x_arr, one_hot=one_hot_train, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, one_hot_test=one_hot_test, y_test=y_test_arr)
+                    else:
+                        self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, y_test=y_test_arr)
+                    if isinstance(test_symbol, str):
+                        test_symbol = train_symbol[:]
+                    else:
+                        print('Weird error!!!')
                 else:
-                    self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}_Test{test_symbol}', x_test=x_test_arr, y_test=y_test_arr)
-                if isinstance(test_symbol, str):
-                    test_symbol = train_symbol[:]
-                else:
-                    print('Weird error!!!')
-                train_symbol = None
+                    print(f'Train:{train_symbol}')
+                    
+                    # One hot encoding
+                    if self.use_one_hot:
+                        self.ai_manager.train_model(x_train=x_arr, one_hot=one_hot_train, y_train=y_arr, log_name=f'Train{train_symbol}')
+                    else:
+                        self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}')
+            except KeyboardInterrupt:
+                print("Ctrl+C detected. Stopping the program...")
+                # Perform any necessary cleanup or finalization steps
+                sys.exit(0)
+
+            self.fit_times += 1
+            if isinstance(test_symbol, str):
+                new_precision = (self.precision * (self.fit_times - 1) + self.ai_manager.get_metrics_on_data(values=scaled, symbol=test_symbol)[0]) / self.fit_times
             else:
-                print(f'Train:{train_symbol}')
-                train_symbol = None
-                # One hot encoding
-                if self.use_one_hot:
-                    self.ai_manager.train_model(x_train=x_arr, one_hot=one_hot_train, y_train=y_arr, log_name=f'Train{train_symbol}')
-                else:
-                    self.ai_manager.train_model(x_train=x_arr, y_train=y_arr, log_name=f'Train{train_symbol}')
+                new_precision = (self.precision * (self.fit_times - 1) + self.ai_manager.get_metrics_on_data(values=scaled, symbol=train_symbol)[0]) / self.fit_times
+            if new_precision > self.precision:
+                print(f"{bcolors.OKGREEN}Great! Average precision increased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
+            elif new_precision == self.precision:
+                print(f"{bcolors.CBLINK}Average precision stayed the same: {round(self.precision, 5)}{bcolors.ENDC}")
+            else:
+                print(f"{bcolors.WARNING}Warning! Average precision decreased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
+            self.precision = new_precision
+            fast_eval = self.ai_manager.get_evaluation(x_test=x_prefilter, y_test=y_prefilter)[0]
+            # Optimizer every 5 data sets
+            if self.model_highest_loss > fast_eval * 700 and self.fit_times % 5 == 0:
+                print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 700}{bcolors.ENDC}")
+                self.model_highest_loss = fast_eval * 700
             self.ai_manager.save_model()
+            self.save_settings(overwrite=True)
             # i += 1
+            train_symbol = None
