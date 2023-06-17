@@ -4,12 +4,11 @@ import os
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
-from tradinga import constants
+from tradinga import settings
 
 from tradinga.ai_helper import get_evaluation, get_xy_arrays, model_v3, predict_simple_next_values, scale_for_ai, test_simple_model, train_model
-from tradinga.ai_models import mape_loss
+from tradinga.ai_models import MODEL_METRICS, load_model
 from tradinga.data_helper import download_newest_data, load_existing_data, save_data_to_csv
 
 
@@ -31,7 +30,7 @@ def make_model(data: pd.DataFrame, look_back: int, epochs, model_path: str, test
 
     if os.path.isdir(model_path):
         print("Found such model. Will continue to train it.")
-        model = tf.keras.models.load_model(model_path)
+        model = load_model(model_path)
     else:
         model = model_v3(x_train.shape[1])
     if isinstance(test_data, pd.DataFrame):
@@ -45,7 +44,7 @@ def test_model_performance(model_path: str, input_window:int, data: pd.DataFrame
     if not os.path.isdir(model_path):
         print(f"Model {model_path} doesn't exist")
         return
-    model = tf.keras.models.load_model(model_path)
+    model = load_model(model_path)
     output_data = test_simple_model(data=data,model=model,look_back=input_window)
     plot_data = data[['time', 'close']].copy()
 
@@ -63,7 +62,7 @@ def draw_future(model_path: str, input_window:int, data: pd.DataFrame, predict: 
         print(f"Model {model_path} doesn't exist")
         return
     
-    model = tf.keras.models.load_model(model_path)
+    model = load_model(model_path)
     data.sort_values('time', inplace=True)
     output_data = predict_simple_next_values(data=data.iloc[len(data)-input_window:len(data)], model=model,look_back=input_window,next=predict)
 
@@ -104,81 +103,65 @@ def analyze_model_metrics(model_path: str, input_window:int, online: bool = Fals
     if not os.path.isdir(model_path):
         print(f"Model {model_path} doesn't exist")
         return
-    model = tf.keras.models.load_model(model_path)
+    model = load_model(model_path)
 
-    symbols = load_existing_data(None, constants.INTERVAL)
+    symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         if not online:
             print("Empty symbols file. Run in online mode to download it.")
             return
-        from tradinga.api_helper import alpha_vantage_list
+        from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
-        symbols = alpha_vantage_list()
-        save_data_to_csv(symbol=None, data=symbols, interval=None)
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
 
-    mse_max = 0
-    mse_min = None
-    mae_max = 0
-    mae_min = None
-    mse_values = []
-    mae_values = []
+    metric_values = [[] for _ in range(len(MODEL_METRICS))]
 
     total_symbols = symbols['symbol'].size
     current_pos = 0
     for symbol in symbols['symbol']:
         current_pos += 1
         if online:
-            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
-        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
         if not isinstance(data, pd.DataFrame):
             continue
         if len(data) < input_window:
             print(f"{symbol} has not enough data points")
             continue
 
-        mse, mae = get_model_metrics(data=data, model=model, input_window=input_window)
-
-        mse_values.append(mse)
-        mae_values.append(mae)
-        if mse_max < mse:
-            mse_max = mse
-        if mse_min == None or mse_min > mse:
-            mse_min = mse
+        metrics = get_model_metrics(data=data, model=model, input_window=input_window)
+        if not isinstance(metrics, list):
+            raise Exception("Looks like there is only one model metric or something is wrong!")
+        if len(metrics) != len(MODEL_METRICS):
+            raise Exception("Different count of model metrics detected!")
         
-        if mae_max < mae:
-            mae_max = mae
-        if mae_min == None or mae_min > mae:
-            mae_min = mae
+        for metric in range(len(MODEL_METRICS)):
+            metric_values[metric].append(metrics[metric])
         print(f'Finished symbol: {symbol}')
         print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
     print(f'Progress: {round(current_pos/total_symbols*100, 2)}%')
 
-    mse_average = sum(mse_values) / len(mse_values)
-    mae_average = sum(mae_values) / len(mae_values)
     print(f'For model: ({model_path}):')
-    print(f'MSE min: {round(mse_min, 5)}')
-    print(f'MSE max: {round(mse_max, 5)}')
-    print(f'MSE avg: {round(mse_average, 5)}')
-    print(f'MAE min: {round(mae_min, 5)}')
-    print(f'MAE max: {round(mae_max, 5)}')
-    print(f'MAE avg: {round(mae_average, 5)}')
+    for metric in range(len(MODEL_METRICS)):
+        print(f'{MODEL_METRICS[metric]} AVG: {sum(metric_values[metric])/len(metric_values[metric])}')
 
 
 def analyze_market_stocks(model_path: str, input_window:int, future: int = 10, download_all: bool = False):
     if not os.path.isdir(model_path):
         print(f"Model {model_path} doesn't exist")
         return
-    model = tf.keras.models.load_model(model_path)
+    model = load_model(model_path)
 
-    symbols = load_existing_data(None, constants.INTERVAL)
+    symbols = load_existing_data(None, settings.INTERVAL)
     if not isinstance(symbols, pd.DataFrame):
         # if not online:
         #     print("Empty symbols file. Run in online mode to download it.")
         #     return
-        from tradinga.api_helper import alpha_vantage_list
+        from tradinga.api_helper import get_nasdaq_symbols
         print("Empty symbols file. Trying to download it now.")
-        symbols = alpha_vantage_list()
-        save_data_to_csv(symbol=None, data=symbols, interval=None)
+        symbols = get_nasdaq_symbols()
+        save_data_to_csv(data=symbols)
 
     max_growth = 0
     stonks_symbol = ''
@@ -188,27 +171,33 @@ def analyze_market_stocks(model_path: str, input_window:int, future: int = 10, d
         current_pos += 1
         if download_all:
             try:
-                download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+                download_newest_data(symbol=symbol,interval=settings.INTERVAL)
             except:
                 print(f'Failed to download {symbol}. Skipping...')
                 continue
         
-        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
         if not isinstance(data, pd.DataFrame):
             continue
 
         try:
-            download_newest_data(symbol=symbol,interval=constants.INTERVAL)
+            download_newest_data(symbol=symbol,interval=settings.INTERVAL)
         except:
             print(f'Failed to download {symbol}. Skipping...')
             continue
-        data = load_existing_data(symbol=symbol, interval=constants.INTERVAL)
+        data = load_existing_data(symbol=symbol, interval=settings.INTERVAL)
         if len(data) < input_window:
             print(f"{symbol} has not enough data points")
             continue
 
-        mse, mae = get_model_metrics(data=data, model=model, input_window=input_window)
-        if mae < 0.01:
+        metrics = get_model_metrics(data=data, model=model, input_window=input_window)
+        if not isinstance(metrics, list):
+            raise Exception("Looks like there is only one model metric or something is wrong!")
+        # if len(metrics) != len(MODEL_METRICS):
+        #     raise Exception("Different count of model metrics detected!")
+        
+        # First metric will be loss value
+        if metrics[0] < 0.01:
             output_data = predict_simple_next_values(data=data.iloc[len(data)-input_window:len(data)], model=model,look_back=input_window,next=future)
             output_data = np.squeeze(output_data) # We got rows as data in column not one row
 

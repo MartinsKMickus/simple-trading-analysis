@@ -4,11 +4,9 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
-from tradinga.ai_models import mape_loss, model_v3
+from tradinga.ai_models import load_model, mape_loss, model_v3
 
-import tradinga.constants as constants
-
-SIMPLE_MODEL_NAME = 'simple_model'
+import tradinga.settings as settings
 
 scaler = MinMaxScaler(feature_range=(0, 1))
 def scale_for_ai(data: pd.Series) -> np.ndarray:
@@ -68,8 +66,7 @@ def get_xy_arrays(values: np.ndarray, window: int) -> tuple[np.ndarray, np.ndarr
 
 def get_evaluation(model: tf.keras.models.Sequential, x_test: np.ndarray, y_test: np.ndarray):
     # TODO: Add description
-    mse, mae = model.evaluate(x_test, y_test) #, verbose=0)
-    return mse, mae
+    return model.evaluate(x_test, y_test) #, verbose=0)
 
 
 def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: np.array, epochs: int, batch_size: int = None, x_test: np.ndarray = None, y_test: np.ndarray = None, log_name: str = None):
@@ -98,40 +95,6 @@ def train_model(model: tf.keras.models.Sequential, x_train: np.array, y_train: n
                     epochs=epochs,
                     batch_size=batch_size,
                     callbacks=[tensorboard_callback])
-
-
-def get_simple_model(data: pd.DataFrame, look_back: int = 200, epochs: int = 50):
-    """
-    Train simple model on some data
-
-    Args:
-        data (pandas.DataFrame)
-        n_steps (int): The number of previous data points to use for prediction.
-
-    Returns:
-        model
-    Saves data in data directory
-    """
-    data.sort_values('time', inplace=True)
-    data['time'] = pd.to_datetime(data['time'])
-
-    scaled_data = scale_for_ai(data=data['close'])
-
-    x_train, y_train = get_xy_arrays(values=scaled_data, window=look_back)
-
-    if os.path.isdir(f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}'):
-            model = tf.keras.models.load_model(
-                f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}') # f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{x_train.shape[1]}'
-    else:
-        model = model_v3(x_train.shape[1])
-        model.summary()
-
-        train_model(model,x_train,y_train,epochs)
-        
-        model.save(
-            f'{constants.AI_DIR}/{SIMPLE_MODEL_NAME}_{look_back}')
-        
-    return model
 
 
 def predict_simple_next_values(data: pd.DataFrame, model: tf.keras.models.Sequential, look_back: int = 100, next: int = 100):

@@ -2,11 +2,11 @@ import datetime
 import os
 import pandas as pd
 
-import tradinga.constants as constants
+import tradinga.settings as settings
 from tradinga.api_helper import yfinance_get_data
 
-DATA_DIR = constants.DATA_DIR
-STOCK_DIR = constants.STOCK_DIR
+DATA_DIR = settings.DATA_DIR
+STOCK_DIR = settings.STOCK_DIR
 
 
 # Create directory if it doesn't exist
@@ -19,15 +19,15 @@ if not os.path.exists(STOCK_DIR):
 # Saves symbol data to a file.
 # If file exists, then it will be updated with newest data.
 # symbol = None saves symbol list file
-def save_data_to_csv(symbol: str, data: pd.DataFrame, interval: str):
+def save_data_to_csv(data: pd.DataFrame, interval: str = "", symbol: str = ""):
     # Remove empty values
     data.dropna(how='all', inplace=True)
     # Make sure all column manes are lowercase
     data.columns = map(str.lower, data.columns)
     
-    if symbol == None:
+    if symbol == "":
         #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        data.to_csv(constants.SYMBOL_FILE, index=False)
+        data.to_csv(settings.SYMBOL_FILE, index=False)
         return
 
     file_path = os.path.join(STOCK_DIR, f'{symbol}_{interval}.csv')
@@ -50,8 +50,8 @@ def load_existing_data(symbol: str, interval: str):
     data = None
     if symbol == None:
         #file_path = os.path.join(DATA_DIR, 'All_symbols.csv')
-        if os.path.exists(constants.SYMBOL_FILE):
-            data = pd.read_csv(constants.SYMBOL_FILE)
+        if os.path.exists(settings.SYMBOL_FILE):
+            data = pd.read_csv(settings.SYMBOL_FILE)
             # Remove empty values
             data.dropna(how='all', inplace=True)
     else:
@@ -79,7 +79,7 @@ def download_newest_data(symbol: str, interval: str):
     # Download and save
     data = yfinance_get_data(symbol, interval, last_date)
     if isinstance(data, pd.DataFrame):
-        save_data_to_csv(symbol, data, interval)
+        save_data_to_csv(symbol=symbol, data=data, interval=interval)
 
 
 def get_data_interval(data: pd.DataFrame, date_from: datetime.datetime = None, date_to: datetime.datetime = None) -> pd.DataFrame:
