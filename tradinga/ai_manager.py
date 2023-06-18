@@ -54,7 +54,7 @@ class AIManager:
         Scale data for neural network. Column 'time' will be dropped.
 
         Args:
-            data (pandas.Series)
+            data (pandas.Series): In form of (time,open,high,low,close,adj close,volume)
 
         Returns:
             scaled data (np.ndarray)
@@ -69,7 +69,7 @@ class AIManager:
 
     def scale_back_array(self, values: np.ndarray):
         """
-        Scale back values to actual size
+        Scale back values to actual size.
 
         Args:
             values (np.ndarray)
@@ -82,13 +82,13 @@ class AIManager:
     
     def scale_back_value(self, value):
         """
-        Scale back 'close' value to actual size
+        Scale back 'close' value to actual size. Can scale back only one value and also multiple values.
 
         Args:
-            value
+            value (np.ndarray) or (float): Values between 0 and 1.
 
         Returns:
-            scaled back value
+            Scaled back value or values.
 
         """
         if isinstance(value, np.ndarray):
@@ -137,6 +137,14 @@ class AIManager:
 
     # One hot encoding
     def get_one_hot_encoding(self, one_hot_encoding: int = 0):
+        """
+        UNDER DEVELOPMENT! Gets one hot encoding for symbol ID to provide to model.
+        Args:
+            one_hot_encoding (int): Stock ID to encode
+
+        Returns:
+            Encoded array
+        """
         if self.one_hot_encoding_count < one_hot_encoding:
             raise Exception(f'One hot encoding not possible. Provided index {one_hot_encoding} but saved index count is: {self.one_hot_encoding_count}')
         # One hot encoding + 1 because 0 index will stand for unknown stock
@@ -146,11 +154,22 @@ class AIManager:
         # symbol_encoded_np = symbol_encoded_np[:, np.newaxis]
         return symbol_encoded_np #reshaped_encoding
 
-    def model_structure(self, i_shape, output=1):
+    def model_structure(self, i_shape=(200, 6), output=1):
+        """
+        Creates default model with provided input shape and output value count.
+
+        Args:
+            i_shape (tuple): Model input shape.
+            output (int): Model output count.
+
+        Returns:
+            Model (tf.keras.models.Sequential)
+
+        """
         model = tf.keras.models.Sequential()
         model.add(
             tf.keras.layers.LSTM(
-                units=128, return_sequences=True, input_shape=(i_shape)
+                units=128, return_sequences=True, input_shape=i_shape
             )
         )
         model.add(tf.keras.layers.LSTM(units=256))
@@ -166,6 +185,18 @@ class AIManager:
     
     # One hot encoding
     def model_structure2(self, data_shape, category_shape, output=1):
+        """
+        Creates model with one hot encoding capability, provided input shape and output value count.
+
+        Args:
+            i_shape (tuple): Model input shape.
+            category_shape (tuple): One hot encoding shape.
+            output (int): Model output count.
+
+        Returns:
+            Model (tf.keras.models.Sequential)
+
+        """
         # Define the input layers
         existing_input = tf.keras.Input(shape=data_shape)
         categorical_input = tf.keras.Input(shape=category_shape)
@@ -188,31 +219,56 @@ class AIManager:
         return model
 
     def load_model(self):
-        # TODO: Add description
+        """
+        Loads model in class variable using custom object scope to be able to work with custom loss functions/
+
+        Returns:
+            Model (tf.keras.model)
+
+        """
         if os.path.exists(self.ai_location):
             with custom_object_scope({'direction_loss': direction_loss}):
                 self.model = tf.keras.models.load_model(self.ai_location)
 
     def save_model(self):
-        # TODO: Add description
+        """
+        Saves model stored in class variable. Overwrites existing one if present.
+
+        """
         if isinstance(self.model, tf.keras.Model):
             self.model.save(self.ai_location)
         else:
             print("Save model called but model does not exist!")
 
     def create_model(self, shape):
-        # TODO: Add description
+        """
+        Creates new model and overwrites class model variable.
+
+        """
         self.model = self.model_structure(i_shape=shape)
 
     # One hot encoding
     def create_model2(self, data_shape, category_shape):
-        # TODO: Add description
+        """
+        Creates new model with one hot encoding capability and overwrites class model variable.
+
+        """
         self.model = self.model_structure2(data_shape=data_shape, category_shape=category_shape)
 
-    def get_evaluation(self, x_test: np.ndarray, y_test: np.ndarray) -> list:
-        # TODO: Add description
+    def get_evaluation(self, x_array: np.ndarray, y_array: np.ndarray) -> list:
+        """
+        Gets evaluation metrics from model using x_array and y_array
+
+        Args:
+            x_array (np.ndarray): X array
+            y_array (np.ndarray): Y array
+
+        Returns:
+            Loss function metric value
+
+        """
         if isinstance(self.model, tf.keras.Model):
-            return list(self.model.evaluate(x_test, y_test, verbose='0'))
+            return list(self.model.evaluate(x_array, y_array, verbose='0'))
         return [0]
 
     def train_model(
@@ -226,7 +282,7 @@ class AIManager:
         log_name=None,
     ):
         """
-        Train model on given arrays. 
+        Train model on given arrays. Including logging.
 
         Args:
             x_train (np.ndarray)
@@ -236,7 +292,6 @@ class AIManager:
             log_name (str) train log name
 
         """
-        # TODO: Add description
         if not isinstance(self.model, tf.keras.Model):
             raise Exception('Train model called but there is no model loaded')
 
@@ -304,6 +359,17 @@ class AIManager:
                 )
 
     def predict_next_value(self, values: np.ndarray, one_hot_encoding = None) -> int:
+        """
+        Gets next (predicted) value for scaled values.
+
+        Args:
+            values (np.ndarray): Scaled values.
+            one_hot_encoding: UNDER DEVELOPMENT
+
+        Returns:
+            Predicted value.
+
+        """
         if not isinstance(self.model, tf.keras.Model):
             print("Predict called but model does not exist!")
             raise Exception("No model loaded")
@@ -320,6 +386,17 @@ class AIManager:
         return predicted[0][0]
     
     def predict_all_values(self, values: np.ndarray, one_hot_encoding = None) -> np.ndarray:
+        """
+        Gets all values that can be predicted within provided data amount from window size -> end of data.
+
+        Args:
+            values (np.ndarray): Scaled values.
+            one_hot_encoding: UNDER DEVELOPMENT
+
+        Returns:
+            Predicted value.
+
+        """
         if not isinstance(self.model, tf.keras.Model):
             print("Predict called but model does not exist!")
             raise Exception("No model loaded")
@@ -339,6 +416,18 @@ class AIManager:
         return predicted
 
     def get_metrics_on_data(self, values: np.ndarray, symbol: str = '', one_hot_encoding = None) -> list[float]:
+        """
+        Gets metrics for model precision on data
+
+        Args:
+            values (np.ndarray): Scaled values.
+            symbol (str): Can be provided for progress bar information.
+            one_hot_encoding: UNDER DEVELOPMENT
+
+        Returns:
+            Currently one metric (precision on predicting trend up/down)
+
+        """
         correct_direction_count = 0
         # - 1 Because last value is for comparison only
         value_count = len(values) - 1

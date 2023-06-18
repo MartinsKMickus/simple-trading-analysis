@@ -34,7 +34,7 @@ class DataAnalyzer:
         self.max_values = [700, 700, 700, 700, 700, 1000000]
         self.use_min_max = True
         self.except_symbols = []
-        self.settings = self.load_settings()
+        self.load_settings()
         self.interval = '1d'
         self.window = window
         self.features = 6
@@ -63,6 +63,10 @@ class DataAnalyzer:
         self.load_symbol_indices()
 
     def load_settings(self):
+        """
+        Loads settings stored locally. If settings loaded then self.settings is set to True, else False
+
+        """
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json'):
             with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', "r") as file:
                 try:
@@ -77,13 +81,19 @@ class DataAnalyzer:
                     print(f'{bcolors.FAIL}Corrupted settings file {self.data_dir}/{self.analyzer_name}_settings.json{bcolors.ENDC}')
                     if query_yes_no('Delete corrupted file?', default='no'):
                         os.remove(f'{self.data_dir}/{self.analyzer_name}_settings.json')
-                        return False
+                        self.settings = False
                     else:
                         sys.exit(0)
-            return True
-        return False
+            self.settings = True
+        self.settings = False
     
     def save_settings(self, overwrite: bool = False):
+        """
+        Saves settings in local file.
+
+        Args:
+            overwrite (bool): Overrwrite existing file
+        """
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json'):
             if not overwrite:
                 print(f'Settings already saved. Use overwrite mode.')
@@ -120,8 +130,6 @@ class DataAnalyzer:
         Probably reasonable price range would be somewhere around 0-500
         Volume can't be predicted that easy because of events like 2008
 
-        Args:
-            force (bool): Overrwrite existing file
         """
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json') and not force:
             print('Settings already stored')
@@ -180,6 +188,14 @@ class DataAnalyzer:
         #     json.dump((self.min_values, self.max_values, self.except_symbols), file)
 
     def random_valuation(self, symbol_count = 50):
+        """
+        Gets valuation metrics for different stocks.
+        
+        Args:
+            symbol_count (int): How much symbols should be analyzed to get metrics.
+        Returns:
+            List with lists of symbols and metric related to it. [[symbol, metric], ...]
+        """
         if not isinstance(self.data_manager.symbols, list):
             print('No symbols loaded')
             return
@@ -208,6 +224,14 @@ class DataAnalyzer:
         return metrics
 
     def random_training(self, symbol_count = None, validate: bool = False):
+        """
+        Heart of "Simple Trading Analysis". Trains model on data and does some of the data filtering, updates settings and model file.
+        
+        Args:
+            symbol_count (int): How much symbols should be analyzed to get metrics. (Default: None (all))
+        Returns:
+            List with lists of symbols and metric related to it. [[symbol, metric], ...]
+        """
         if not isinstance(self.data_manager.symbols, list):
             print('No symbols loaded')
             return
@@ -265,7 +289,7 @@ class DataAnalyzer:
                 i += 1
                 continue
             # Optimizer
-            if self.model_highest_loss < self.ai_manager.get_evaluation(x_test=x_prefilter, y_test=y_prefilter)[0] and self.fit_times > 1:
+            if self.model_highest_loss < self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0] and self.fit_times > 1:
                 # print(f'Skipping symbol {shuffled_list[i]}. Symbol evaluation value too low')
                 self.model_except.append(shuffled_list[i])
                 self.save_settings(overwrite=True)
@@ -344,7 +368,7 @@ class DataAnalyzer:
             else:
                 print(f"{bcolors.WARNING}Warning! Average precision decreased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
             self.precision = new_precision
-            fast_eval = self.ai_manager.get_evaluation(x_test=x_prefilter, y_test=y_prefilter)[0]
+            fast_eval = self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0]
             # Optimizer every 5 data sets
             if self.model_highest_loss > fast_eval * 700 and self.fit_times % 5 == 0:
                 print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 700}{bcolors.ENDC}")

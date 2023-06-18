@@ -21,13 +21,25 @@ class BusinessLogic:
         self.data_analyzer.ai_manager.load_model()
         self.current_date = datetime.datetime.now()
 
-    def check_except(self, symbol: str):
+    def check_except(self, symbol: str) -> bool:
+        """
+        Shows if symbol is in except list (following different rules or exceeds value interval).
+        Args:
+            symbol (str): Symbol name.
+
+        Returns:
+            Is it in except list (bool): True if symbol is in except list, False if not.
+        """
         if symbol in self.data_analyzer.except_symbols or symbol in self.data_analyzer.model_except:
             print(f'{bcolors.WARNING}Warning! Symbol is in except symbol list{bcolors.ENDC}')
+            return True
+        return False
 
     def predict_next_close(self, symbol: str):
         """
         Shows next possible price value and change for stock. Shows data information.
+        Args:
+            symbol (str): Symbol name.
         """
         data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval)#, online=True)
         filtered_data = self.data_analyzer.data_manager.filter_data(data=data, date_to=self.current_date)
@@ -40,7 +52,9 @@ class BusinessLogic:
 
     def show_prediction_chart(self, symbol: str):
         """
-        Shows prediction chart to see if predictions are not too off the chart
+        Shows prediction chart to see if predictions are not too off the chart.
+        Args:
+            symbol (str): Symbol name.
         """
         data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval)
         scaled_data = self.data_analyzer.ai_manager.scale_for_ai(data)
@@ -55,6 +69,11 @@ class BusinessLogic:
         plt.show()
 
     def improve_model(self, symbol_count = None):
+        """
+        Improves existing or creates new model.
+        Args:
+            symbol_count (int): On how many symbols model has to be trained on.
+        """
         if not isinstance(symbol_count, int):
             symbol_count = len(self.data_analyzer.data_index)
         if self.min_max and not self.data_analyzer.settings:

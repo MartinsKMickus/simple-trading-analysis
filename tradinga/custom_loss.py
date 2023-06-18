@@ -1,6 +1,11 @@
 import tensorflow as tf
 
 def direction_loss(y_true, y_pred):
+    """
+    Loss is much higher if predicted value trend is wrong
+    Args:
+        symbol (str): Symbol name.
+    """
     # Calculate the previous values of y_true
     prev_true = tf.roll(y_true, shift=1, axis=0)
     
