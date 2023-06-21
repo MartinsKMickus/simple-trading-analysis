@@ -26,11 +26,11 @@ MODEL_METRICS = ["mean_squared_error", "direction_sensitive_loss", "mae", "mape_
 class AIManager:
     data_columns = 6
     desired_column_index = 3  # Index of the column where the predicted value should be placed
-    window = 200
+    window = 100
     one_hot_encoding_count = 0
     batch_size = 64
-    epochs = 200
-    use_earlystop = True
+    epochs = 50
+    use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
     custom_scaler = False
@@ -40,15 +40,27 @@ class AIManager:
     direction_metric = True
     valuation_metrics = ['Correct trend loss']
 
-    def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None) -> None:
+    def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 100) -> None:
+        self.window = window
         self.ai_location = data_dir + "/models/" + f"MODEL_{model_name}{self.window}"
         self.one_hot_encoding_count = one_hot_encoding_count
         if isinstance(data_min, np.ndarray) and isinstance(data_max, np.ndarray):
-            combined_array = np.column_stack((data_min, data_max))
-            combined_array = combined_array.T
-            self.scaler.fit(combined_array)
-            self.custom_scaler = True
+            self.apply_minmax_setting(data_min=data_min, data_max=data_max)
 
+    def apply_minmax_setting(self, data_min: np.ndarray, data_max: np.ndarray):
+        """
+        Applies scaler configuration
+
+        Args:
+            data_min (np.ndarray): Data min
+            data_max (np.ndarray): Data max
+
+        """
+        combined_array = np.column_stack((data_min, data_max))
+        combined_array = combined_array.T
+        self.scaler.fit(combined_array)
+        self.custom_scaler = True
+        
     def scale_for_ai(self, data: pd.DataFrame) -> np.ndarray:
         """
         Scale data for neural network. Column 'time' will be dropped.
@@ -169,14 +181,14 @@ class AIManager:
         model = tf.keras.models.Sequential()
         model.add(
             tf.keras.layers.LSTM(
-                units=128, return_sequences=True, input_shape=i_shape
+                units=64, return_sequences=True, input_shape=i_shape
             )
         )
-        model.add(tf.keras.layers.LSTM(units=256))
-        model.add(tf.keras.layers.Dense(1024))
+        model.add(tf.keras.layers.LSTM(units=128))
+        # model.add(tf.keras.layers.Dense(1024))
         # model.add(tf.keras.layers.Reshape((1, 2048)))
         # model.add(tf.keras.layers.LSTM(units=64))
-        # model.add(tf.keras.layers.Dense(512))
+        model.add(tf.keras.layers.Dense(1024))
         model.add(tf.keras.layers.Dense(512))
         model.add(tf.keras.layers.Dense(units=output))
         model.compile(optimizer="adam", loss="mean_squared_error", metrics=[direction_loss, "mae"])
@@ -304,7 +316,7 @@ class AIManager:
         else:
             log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         tensorboard_callback = tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir, histogram_freq=1, write_images=True
+            log_dir=log_dir, histogram_freq=1, write_images=False
         )
         # if isinstance(one_hot_encoding, np.ndarray):
         #     x_test = [x_test, one_hot_encoding]
@@ -433,25 +445,24 @@ class AIManager:
         value_count = len(values) - 1
         # max_change = 0.3
         # print(f'Required change: {max_change}')
-
+        predictions = self.scale_back_value(self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding))
+        values = self.scale_back_value(value=values[:,3])
         try:
-            for i in tqdm.tqdm(range(self.window, len(values) - 1), desc=f'Calculating metrics {symbol}'):
-                # One hot encoding
-                if isinstance(one_hot_encoding, np.ndarray):
-                    predicted = self.predict_next_value(values[i - self.window : i], one_hot_encoding=one_hot_encoding)
-                else:
-                    predicted = self.predict_next_value(values[i - self.window : i])
-                actual_value = self.scale_back_value(values[i, 3])
-                previous_value = self.scale_back_value(values[i-1, 3])
-                predicted = self.scale_back_value(predicted)
+            for i in range(self.window + 1, value_count - 1):
+                predicted = predictions[i-self.window]
+                actual_value = values[i]
+                previous_value = values[i-1]
+                previous_predicted = predictions[i-self.window-1]
                 if self.direction_metric:
-                    # Check precision only if predicted change is large enough
-                    # if abs((predicted-previous_value)/previous_value) > max_change:
-                    #     value_count -= 1
-                    #     continue
-                    if predicted > previous_value and actual_value > previous_value:
+                    # Based on previous
+                    # if predicted > previous_value and actual_value > previous_value:
+                    #     correct_direction_count += 1
+                    # elif predicted < previous_value and actual_value < previous_value:
+                    #     correct_direction_count += 1
+                    # Based on predictions
+                    if predicted > previous_predicted and actual_value > previous_value:
                         correct_direction_count += 1
-                    elif predicted < previous_value and actual_value < previous_value:
+                    elif predicted < previous_predicted and actual_value < previous_value:
                         correct_direction_count += 1
 
         except KeyboardInterrupt:

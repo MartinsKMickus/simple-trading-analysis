@@ -42,3 +42,13 @@ class DataAnalyzerTests(unittest.TestCase):
         analyzer.data_manager.get_nasdaq_symbols()
         analyzer.ai_manager.load_model()
         analyzer.random_valuation(1)
+
+    # TODO: Fix test below
+    # def test_ai_configuration_sync(self):
+    #     if not os.path.exists(f'{TESTING_DIR}/models'):
+    #         self.test_random_training
+    #     if os.path.exists(f'{TESTING_DIR}'):
+    #         shutil.rmtree(f'{TESTING_DIR}', ignore_errors=True)
+    #     analyzer = DataAnalyzer(data_dir=TESTING_DIR)
+    #     analyzer.filter_stocks()
+    #     analyzer.ai_manager.custom_scaler.

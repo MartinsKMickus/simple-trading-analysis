@@ -55,7 +55,7 @@ class DataManager:
 
     def filter_data(self, data: pd.DataFrame, date_from=None, date_to=None):
         """
-        Makes a copy of data to not modify original values and gets time period.
+        Makes a copy of data to not modify original values and gets time period (including).
 
         Args:
             data (pd.DataFrame): Preprocessed data.
@@ -67,13 +67,13 @@ class DataManager:
         """
         filtered_data = data.copy()
         if date_from is not None:
-            filtered_data = filtered_data[(filtered_data["time"] > date_from)]
+            filtered_data = filtered_data[(filtered_data["time"] >= date_from)]
         if date_to is not None:
-            filtered_data = filtered_data[(filtered_data["time"] < date_to)]
+            filtered_data = filtered_data[(filtered_data["time"] <= date_to)]
         return filtered_data
 
     def yfinance_get_data(
-        self, symbol: str, interval: str, max_tries=2, try_sleep=10, show_symbol: bool=False
+        self, symbol: str, interval: str, max_tries=2, try_sleep=5, show_symbol: bool=False
     ) -> pd.DataFrame:
         """
         Downloads data for provided symbol and interval.
@@ -99,7 +99,7 @@ class DataManager:
             try:
                 tries += 1
                 data = yfinance.download(
-                    symbol, start=from_date, interval=interval, progress=False
+                    symbol, start=from_date, interval=interval, progress=False, timeout=1
                 )
                 break
             except:

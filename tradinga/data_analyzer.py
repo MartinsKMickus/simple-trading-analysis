@@ -2,7 +2,10 @@
 
 import datetime
 import json
+from multiprocessing import Process, Queue
 import os
+import threading
+from memory_profiler import profile
 import random
 import sys
 from matplotlib import pyplot as plt
@@ -16,23 +19,23 @@ from tradinga.ai_manager import AIManager
 from tradinga.data_manager import DataManager
 from tradinga.settings import DATA_DIR, MIN_DATA_CHECKS, STOCK_DIR, SYMBOL_FILE
 
-
+# @profile
 class DataAnalyzer:
-    data_index = {}
-    fit_times = 0
-    precision = 0
-    model_except = []
-    model_highest_loss = 0.14
 
-    def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, symbol_file: str = SYMBOL_FILE, window: int = 200) -> None:
+    def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, symbol_file: str = SYMBOL_FILE, window: int = 100) -> None:
         # Settings
         self.analyzer_name = analyzer_name
         self.data_dir = data_dir
 
         # Additional settings
+        self.data_index = {}
+        self.fit_times = 0
+        self.precision = 0
+        self.model_except = []
+        self.model_highest_loss = 0.14
         self.min_values = [0, 0, 0, 0, 0, 0]
         self.max_values = [700, 700, 700, 700, 700, 1000000]
-        self.use_min_max = True
+        self.use_min_max = False
         self.except_symbols = []
         self.load_settings()
         self.interval = '1d'
@@ -50,17 +53,18 @@ class DataAnalyzer:
         if self.settings:
             if self.use_min_max:
                 # print(f'Settings loaded!\n Applied min: {self.min_values}\n Applied max: {self.max_values}')
-                self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, data_min=np.array(self.min_values), data_max=np.array(self.max_values), one_hot_encoding_count=self.one_hot)
+                self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, data_min=np.array(self.min_values), data_max=np.array(self.max_values), one_hot_encoding_count=self.one_hot, window=self.window)
             else:
-                self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot)
+                self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot, window=self.window)
         else:
             print(f'WARNING! Settings not loaded!')
-            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot)
+            self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot, window=self.window)
         self.ai_manager.window = self.window
         self.ai_manager.data_columns = self.features
 
         # Last initializations
         self.load_symbol_indices()
+        self.ai_manager.load_model()
 
     def load_settings(self):
         """
@@ -82,10 +86,13 @@ class DataAnalyzer:
                     if query_yes_no('Delete corrupted file?', default='no'):
                         os.remove(f'{self.data_dir}/{self.analyzer_name}_settings.json')
                         self.settings = False
+                        return
                     else:
                         sys.exit(0)
             self.settings = True
+            return
         self.settings = False
+        return
     
     def save_settings(self, overwrite: bool = False):
         """
@@ -124,11 +131,13 @@ class DataAnalyzer:
             with open(f'{self.data_dir}/{self.analyzer_name}_indeces.json', "r") as file:
                 self.data_index = json.load(file)
 
-    def get_min_max_values(self, force = False):
+    def filter_stocks(self, force = False, apply_scaler = False):
         """
         Filters out stocks which values exceeds min max scaler interval.
         Probably reasonable price range would be somewhere around 0-500
         Volume can't be predicted that easy because of events like 2008
+
+        Applies filter for ai_manager
 
         """
         if os.path.exists(f'{self.data_dir}/{self.analyzer_name}_settings.json') and not force:
@@ -182,10 +191,40 @@ class DataAnalyzer:
         self.max_values = data_max
 
         print(f'Filtered out {len(self.except_symbols)} symbols out of {len(self.data_manager.symbols)}')
-        print(f'Applied min: {self.min_values}\nApplied max: {self.max_values}')
+        if apply_scaler:
+            self.ai_manager.apply_minmax_setting(data_min=np.array(self.min_values), data_max=np.array(self.max_values))
+            print(f'Applied min: {self.min_values}\nApplied max: {self.max_values}')
         # Save variables to a file
         # with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', 'w') as file: !!!!!!!!!!!!! DON'T USE
         #     json.dump((self.min_values, self.max_values, self.except_symbols), file)
+
+    def in_exclude(self, symbol: str) -> bool:
+        """
+        Checks whatever symbol is or isn't in exclude symbol list.
+        Args:
+            symbol (str): Symbol.
+        Returns:
+            True if symbol is in exclude list and False if it isn't (bool)
+        """
+        if symbol in self.except_symbols or symbol in self.model_except:
+            return True
+        return False
+
+    def get_valuation(self, symbol:str):
+        """
+        Gets valuation metrics for specific stock.
+        
+        Args:
+            symbol (str): Symbol.
+        Returns:
+            List with lists of symbol name at start and metrics related to it. [symbol, metrics]
+        """
+        loaded_data = self.data_manager.get_symbol_data(symbol=symbol, interval=self.interval)
+        if len(loaded_data) < self.window + self.min_data_checks:
+            print(f'{bcolors.FAIL}Symbol {symbol} has not enough data points{bcolors.ENDC}')
+            return [symbol, 'Not enough data points']
+        scaled = self.ai_manager.scale_for_ai(data=loaded_data)
+        return [symbol, self.ai_manager.get_metrics_on_data(scaled, symbol=symbol)]
 
     def random_valuation(self, symbol_count = 50):
         """
@@ -222,6 +261,24 @@ class DataAnalyzer:
                 metrics.append([shuffled_list[i], self.ai_manager.get_metrics_on_data(scaled, symbol=shuffled_list[i])])
             i += 1
         return metrics
+
+    def update_plot(self, queue: Queue):
+        """
+        Plot function to display some info within process loop. To not freeze plot. should be ended with terminate.
+        
+        Args:
+            queue (Queue): Queue for plotting. Info should be added later with: queue.put(array)
+        
+        """
+        plt.ion()
+        _, ax = plt.subplots()
+        while True:
+            if not queue.empty():
+                ax.clear()
+                ax.plot(queue.get())
+                plt.draw()
+            plt.pause(0.1)
+        # plt.close('all')
 
     def random_training(self, symbol_count = None, validate: bool = False):
         """
@@ -267,6 +324,12 @@ class DataAnalyzer:
         one_hot_train = None
         one_hot_test = None
 
+        # Statistics
+        self.precision_values = []
+        queue = Queue()
+        plot_process = Process(target=self.update_plot, args=(queue,))
+        plot_process.start()
+
         while i < symbol_count and i < len(shuffled_list):
             if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except:
                 # print(f'Skipping symbol {shuffled_list[i]}. Symbol in except list')
@@ -289,8 +352,8 @@ class DataAnalyzer:
                 i += 1
                 continue
             # Optimizer
-            if self.model_highest_loss < self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0] and self.fit_times > 1:
-                # print(f'Skipping symbol {shuffled_list[i]}. Symbol evaluation value too low')
+            if self.model_highest_loss < self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0] and self.fit_times > 20:
+                print(f'Skipping symbol {shuffled_list[i]}. Symbol evaluation value too low')
                 self.model_except.append(shuffled_list[i])
                 self.save_settings(overwrite=True)
                 symbol_count += 1
@@ -354,6 +417,7 @@ class DataAnalyzer:
             except KeyboardInterrupt:
                 print("Ctrl+C detected. Stopping the program...")
                 # Perform any necessary cleanup or finalization steps
+                plot_process.terminate()
                 sys.exit(0)
 
             self.fit_times += 1
@@ -361,6 +425,15 @@ class DataAnalyzer:
                 new_precision = (self.precision * (self.fit_times - 1) + self.ai_manager.get_metrics_on_data(values=scaled, symbol=test_symbol)[0]) / self.fit_times
             else:
                 new_precision = (self.precision * (self.fit_times - 1) + self.ai_manager.get_metrics_on_data(values=scaled, symbol=train_symbol)[0]) / self.fit_times
+            
+            # If precision is too low, then model won't be updated
+            required_precision_coef = 0.8
+            if new_precision < self.precision * required_precision_coef:
+                print(f'Skipping model update because precision is {bcolors.WARNING}{new_precision} < {required_precision_coef * self.precision}{bcolors.ENDC}')
+                self.ai_manager.load_model()
+                train_symbol = None
+                continue
+
             if new_precision > self.precision:
                 print(f"{bcolors.OKGREEN}Great! Average precision increased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
             elif new_precision == self.precision:
@@ -368,12 +441,21 @@ class DataAnalyzer:
             else:
                 print(f"{bcolors.WARNING}Warning! Average precision decreased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
             self.precision = new_precision
-            fast_eval = self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0]
+
             # Optimizer every 5 data sets
-            if self.model_highest_loss > fast_eval * 700 and self.fit_times % 5 == 0:
-                print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 700}{bcolors.ENDC}")
-                self.model_highest_loss = fast_eval * 700
+            fast_eval = self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0]
+            if self.model_highest_loss > fast_eval * 100: # and self.fit_times % 5 == 0
+                print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
+                self.model_highest_loss = fast_eval * 100
             self.ai_manager.save_model()
             self.save_settings(overwrite=True)
-            # i += 1
             train_symbol = None
+
+            # Statistics
+            self.precision_values.append(new_precision)
+            queue.put(self.precision_values)
+
+            # Status
+            print(f'Random traing progress: {i}/{symbol_count} = {round(i/symbol_count*100, 2)}%')
+
+        plot_process.terminate()
