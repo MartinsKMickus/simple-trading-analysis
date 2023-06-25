@@ -132,6 +132,8 @@ dmypy.json
 # Custom
 constants.py
 data
-logs
+logs*
 temp
 .vscode
+test_data
+.VS*
