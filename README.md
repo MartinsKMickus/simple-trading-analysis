@@ -16,6 +16,7 @@ AI stock market recommendation generator.
 ### Arguments
 - `train` Create or retrain model (While training process can be stopped with Ctrl+C)
   - `--count COUNT` Count on how many symbols model has to be trained (Default: All symbols)
+  - `-c` Clean settings and delete model before training
 - `metrics` Predict symbol value
   - `-s/--symbol SIMBOL` Single symbol analysis (REQUIRED)
   - `-p` Plot data of predicted values on top of actual values
@@ -27,10 +28,10 @@ AI stock market recommendation generator.
 
 
 ## Code structure
-Code consists of different modules from which main ones are `DataManager` and `AIManager`.
+Code consists of different classes.
 This graph should approximately represent data flow within:
 
-![image](https://user-images.githubusercontent.com/64271878/234019715-df74c364-21db-4cd7-923a-4640626fb39c.png)
+<b>GRAPH TO BE ADDED </b>
 
 
 ## Development

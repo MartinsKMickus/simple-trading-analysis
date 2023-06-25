@@ -4,6 +4,7 @@ import datetime
 import json
 from multiprocessing import Process, Queue
 import os
+import shutil
 import threading
 from memory_profiler import profile
 import random
@@ -32,7 +33,7 @@ class DataAnalyzer:
         self.fit_times = 0
         self.precision = 0
         self.model_except = []
-        self.model_highest_loss = 0.14
+        self.model_lowest_precision = 0
         self.min_values = [0, 0, 0, 0, 0, 0]
         self.max_values = [700, 700, 700, 700, 700, 1000000]
         self.use_min_max = False
@@ -75,12 +76,13 @@ class DataAnalyzer:
             with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', "r") as file:
                 try:
                     loaded_data = json.load(file)
-                    self.use_min_max, self.min_values, self.max_values, self.except_symbols, self.fit_times, self.precision, self.model_except, self.model_highest_loss = loaded_data
+                    self.use_min_max, self.min_values, self.max_values, self.except_symbols, self.fit_times, self.precision, self.model_except, self.model_lowest_precision = loaded_data
                     print('Settings loaded!')
                     if self.use_min_max:
                         print(f'Applied min: {self.min_values}\nApplied max: {self.max_values}')
-                    print(f'Fit times: {self.fit_times}\nPrecision: {self.precision}')
-                    print(f'Highest loss: {self.model_highest_loss}')
+                    print(f'Fit times: {self.fit_times}')
+                    print(f'Average precision: {self.precision}')
+                    print(f'Lowest allowed precision: {self.model_lowest_precision}')
                 except Exception:
                     print(f'{bcolors.FAIL}Corrupted settings file {self.data_dir}/{self.analyzer_name}_settings.json{bcolors.ENDC}')
                     if query_yes_no('Delete corrupted file?', default='no'):
@@ -106,7 +108,7 @@ class DataAnalyzer:
                 print(f'Settings already saved. Use overwrite mode.')
                 return
         with open(f'{self.data_dir}/{self.analyzer_name}_settings.json', 'w') as file:
-            settings_definition = (self.use_min_max, self.min_values, self.max_values, self.except_symbols, self.fit_times, self.precision, self.model_except, self.model_highest_loss)
+            settings_definition = (self.use_min_max, self.min_values, self.max_values, self.except_symbols, self.fit_times, self.precision, self.model_except, self.model_lowest_precision)
             json.dump(settings_definition, file)
 
     def save_symbol_indices(self):
@@ -130,6 +132,21 @@ class DataAnalyzer:
         else:
             with open(f'{self.data_dir}/{self.analyzer_name}_indeces.json', "r") as file:
                 self.data_index = json.load(file)
+
+    def reset_model_and_settings(self):
+        """
+        Deletes model file and resets settings except filter
+
+        """
+        if query_yes_no(question="Are you sure to delete model and reset settings?", default='no'):
+            if os.path.exists(self.ai_manager.ai_location):
+                shutil.rmtree(self.ai_manager.ai_location, ignore_errors=True)
+            self.ai_manager.create_model((self.window, self.features))
+            self.fit_times = 0
+            self.model_except = []
+            self.precision = 0
+            self.model_lowest_precision = 0
+            self.save_settings(overwrite=True)
 
     def filter_stocks(self, force = False, apply_scaler = False):
         """
@@ -267,20 +284,30 @@ class DataAnalyzer:
         Plot function to display some info within process loop. To not freeze plot. should be ended with terminate.
         
         Args:
-            queue (Queue): Queue for plotting. Info should be added later with: queue.put(array)
+            queue (Queue): Queue for plotting. Info should be added later with: queue.put(array). Info provided: (accuracy_plot, validation_symbol, validation_value, validation_plot)
         
         """
         plt.ion()
-        _, ax = plt.subplots()
+        # _, ax = plt.subplots()
+        fig, (ax1, ax2) = plt.subplots(1, 2)  # Create two subplots side by side
+        fig.tight_layout()  # Adjust spacing between subplots
         while True:
             if not queue.empty():
-                ax.clear()
-                ax.plot(queue.get())
+                data = queue.get()
+                ax1.clear()
+                ax1.plot(data[0])
+                ax1.set_title('Trend way prediction accuracy')
+                ax2.clear()
+                ax2.plot(data[3]['time'], data[3]['close'], label='Actual')
+                ax2.plot(data[3]['time'], data[3]['predicted'], label='Predicted')
+                ax2.set_title(f'Validation on {data[1]}: {data[2]}')
+                # ax.clear()
+                # ax.plot(queue.get())
                 plt.draw()
             plt.pause(0.1)
         # plt.close('all')
 
-    def random_training(self, symbol_count = None, validate: bool = False):
+    def random_training(self, symbol_count = None, validate: bool = False, wait_end: bool = True):
         """
         Heart of "Simple Trading Analysis". Trains model on data and does some of the data filtering, updates settings and model file.
         
@@ -329,6 +356,14 @@ class DataAnalyzer:
         queue = Queue()
         plot_process = Process(target=self.update_plot, args=(queue,))
         plot_process.start()
+        data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
+        scaled = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval))
+        val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
+        predicted = self.ai_manager.scale_back_value(self.ai_manager.predict_all_values(values=scaled))
+        plot_data = data[['time', 'close']].copy()
+        plot_data = plot_data.iloc[self.window:]
+        plot_data['predicted'] = predicted
+        queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
 
         while i < symbol_count and i < len(shuffled_list):
             if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except:
@@ -346,19 +381,31 @@ class DataAnalyzer:
                 x_prefilter, y_prefilter = self.ai_manager.get_xy_arrays(values=prefiltering)
             except Exception as e:
                 print(f'Skipping symbol {shuffled_list[i]}. Reason:', end=' ')
+                self.model_except.append(shuffled_list[i])
+                self.save_settings(overwrite=True)
                 print(e)
                 test_symbol = None
                 symbol_count += 1
                 i += 1
                 continue
-            # Optimizer
-            if self.model_highest_loss < self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0] and self.fit_times > 20:
-                print(f'Skipping symbol {shuffled_list[i]}. Symbol evaluation value too low')
+            # Optimizer OLD
+            # if self.model_highest_loss < self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0] and self.fit_times > 20:
+            #     print(f'Skipping symbol {shuffled_list[i]}. Symbol evaluation results too bad')
+            #     self.model_except.append(shuffled_list[i])
+            #     self.save_settings(overwrite=True)
+            #     symbol_count += 1
+            #     i += 1
+            #     continue
+            # Optimizer NEW
+            precision = self.ai_manager.get_metrics_on_data(values=prefiltering, symbol=shuffled_list[i])[0]
+            if self.model_lowest_precision > precision:
+                print(f'Skipping symbol {shuffled_list[i]}. Symbol precision value too low {round(precision*100, 2)}% < {round(self.model_lowest_precision* 100, 2)}%')
                 self.model_except.append(shuffled_list[i])
                 self.save_settings(overwrite=True)
                 symbol_count += 1
                 i += 1
                 continue
+
             if not isinstance(train_symbol, str):
                 train_symbol = shuffled_list[i]
                 i += 1
@@ -422,17 +469,17 @@ class DataAnalyzer:
 
             self.fit_times += 1
             if isinstance(test_symbol, str):
-                new_precision = (self.precision * (self.fit_times - 1) + self.ai_manager.get_metrics_on_data(values=scaled, symbol=test_symbol)[0]) / self.fit_times
+                precision = self.ai_manager.get_metrics_on_data(values=scaled, symbol=test_symbol)[0]
             else:
-                new_precision = (self.precision * (self.fit_times - 1) + self.ai_manager.get_metrics_on_data(values=scaled, symbol=train_symbol)[0]) / self.fit_times
+                precision = self.ai_manager.get_metrics_on_data(values=scaled, symbol=train_symbol)[0]
+            new_precision = (self.precision * (self.fit_times - 1) + precision) / self.fit_times
             
-            # If precision is too low, then model won't be updated
-            required_precision_coef = 0.8
-            if new_precision < self.precision * required_precision_coef:
-                print(f'Skipping model update because precision is {bcolors.WARNING}{new_precision} < {required_precision_coef * self.precision}{bcolors.ENDC}')
-                self.ai_manager.load_model()
-                train_symbol = None
-                continue
+            # If precision is too low, then model won't be updated ISN'T TRIGGERED
+            # if new_precision < self.precision * required_precision_coef:
+            #     print(f'Skipping model update because precision is {bcolors.WARNING}{new_precision} < {required_precision_coef * self.precision}{bcolors.ENDC}')
+            #     self.ai_manager.load_model()
+            #     train_symbol = None
+            #     continue
 
             if new_precision > self.precision:
                 print(f"{bcolors.OKGREEN}Great! Average precision increased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
@@ -442,20 +489,40 @@ class DataAnalyzer:
                 print(f"{bcolors.WARNING}Warning! Average precision decreased: {round(self.precision, 5)} -> {round(new_precision, 5)}{bcolors.ENDC}")
             self.precision = new_precision
 
-            # Optimizer every 5 data sets
-            fast_eval = self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0]
-            if self.model_highest_loss > fast_eval * 100: # and self.fit_times % 5 == 0
-                print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
-                self.model_highest_loss = fast_eval * 100
+            # Optimizer every 5 data sets DISABLED FOR NOW
+            # fast_eval = self.ai_manager.get_evaluation(x_array=x_prefilter, y_array=y_prefilter)[0]
+            # if self.model_highest_loss > fast_eval * 100: # and self.fit_times % 5 == 0
+            #     print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
+            #     self.model_highest_loss = fast_eval * 100
+            # ALTERNATIVE
+            required_precision_coef = 0.9
+            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 30: # and self.fit_times % 5 == 0
+                print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Lowest allowed precision updated: {self.model_lowest_precision} -> {precision * required_precision_coef}{bcolors.ENDC}")
+                self.model_lowest_precision = precision * required_precision_coef
+
+            # Statistics
+            self.precision_values.append(new_precision)
+            data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
+            scaled = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval))
+            val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
+            predicted = self.ai_manager.scale_back_value(self.ai_manager.predict_all_values(values=scaled))
+            plot_data = data[['time', 'close']].copy()
+            plot_data = plot_data.iloc[self.window:]
+            plot_data['predicted'] = predicted
+            queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
+            # queue.put(self.precision_values)
+
+            # Status
+            if symbol_count > len(shuffled_list):
+                temp_count = len(shuffled_list) - 1
+            else:
+                temp_count = symbol_count
+            print(f'Random traing progress: {i}/{temp_count} = {round(i/temp_count*100, 2)}%')
+
             self.ai_manager.save_model()
             self.save_settings(overwrite=True)
             train_symbol = None
 
-            # Statistics
-            self.precision_values.append(new_precision)
-            queue.put(self.precision_values)
-
-            # Status
-            print(f'Random traing progress: {i}/{symbol_count} = {round(i/symbol_count*100, 2)}%')
-
+        if wait_end:
+            input("Press Enter to end...")
         plot_process.terminate()

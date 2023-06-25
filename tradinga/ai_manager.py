@@ -29,12 +29,14 @@ class AIManager:
     window = 100
     one_hot_encoding_count = 0
     batch_size = 64
-    epochs = 50
+    epochs = 1
     use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
     custom_scaler = False
     model = None
+    # After how much time units make prediction in future
+    predict_after_time = 3
 
     # Metrics
     direction_metric = True
@@ -44,6 +46,8 @@ class AIManager:
         self.window = window
         self.ai_location = data_dir + "/models/" + f"MODEL_{model_name}{self.window}"
         self.one_hot_encoding_count = one_hot_encoding_count
+        # For calculations next day is 0 and so on
+        self.predict_after_time -= 1
         if isinstance(data_min, np.ndarray) and isinstance(data_max, np.ndarray):
             self.apply_minmax_setting(data_min=data_min, data_max=data_max)
 
@@ -137,11 +141,15 @@ class AIManager:
         x_array = []
         y_array = []
 
-        for i in range(self.window, len(values) - 1):
+        for i in range(self.window, len(values) - self.predict_after_time):
             x_array.append(
                 values[i - self.window : i]
             )
-            y_array.append(values[i, self.desired_column_index])  # To predict next 'close' value
+            y_array.append(values[i + self.predict_after_time, self.desired_column_index])  # To predict 'close' value
+            # if values[i + self.predict_after_time, self.desired_column_index] > values[i - 1, self.desired_column_index]:
+            #     y_array.append(1)
+            # else:
+            #     y_array.append(0)
 
         x_array, y_array = np.array(x_array), np.array(y_array)
 
@@ -181,17 +189,20 @@ class AIManager:
         model = tf.keras.models.Sequential()
         model.add(
             tf.keras.layers.LSTM(
-                units=64, return_sequences=True, input_shape=i_shape
+                units=200, return_sequences=True, input_shape=i_shape
             )
         )
-        model.add(tf.keras.layers.LSTM(units=128))
+        model.add(tf.keras.layers.Dropout(0.55))
+        model.add(tf.keras.layers.LSTM(units=50))
+        model.add(tf.keras.layers.Dense(250))
+        model.add(tf.keras.layers.Dropout(0.65))
         # model.add(tf.keras.layers.Dense(1024))
-        # model.add(tf.keras.layers.Reshape((1, 2048)))
-        # model.add(tf.keras.layers.LSTM(units=64))
-        model.add(tf.keras.layers.Dense(1024))
-        model.add(tf.keras.layers.Dense(512))
+        model.add(tf.keras.layers.Reshape((1, 250)))
+        model.add(tf.keras.layers.LSTM(units=10))
+        model.add(tf.keras.layers.Dense(500))
         model.add(tf.keras.layers.Dense(units=output))
-        model.compile(optimizer="adam", loss="mean_squared_error", metrics=[direction_loss, "mae"])
+        # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer="SGD", loss=direction_loss, metrics=["mean_squared_error", "mae"]) # RMSprop, Adagrad, SGD, Adam
         model.summary()
         return model
     
@@ -316,7 +327,7 @@ class AIManager:
         else:
             log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         tensorboard_callback = tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir, histogram_freq=1, write_images=False
+            log_dir=log_dir, histogram_freq=1, write_images=True
         )
         # if isinstance(one_hot_encoding, np.ndarray):
         #     x_test = [x_test, one_hot_encoding]
@@ -442,17 +453,18 @@ class AIManager:
         """
         correct_direction_count = 0
         # - 1 Because last value is for comparison only
-        value_count = len(values) - 1
+        # value_count = len(values) - 1
         # max_change = 0.3
         # print(f'Required change: {max_change}')
         predictions = self.scale_back_value(self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding))
+        # predictions_bool = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding)
         values = self.scale_back_value(value=values[:,3])
         try:
-            for i in range(self.window + 1, value_count - 1):
-                predicted = predictions[i-self.window]
-                actual_value = values[i]
-                previous_value = values[i-1]
-                previous_predicted = predictions[i-self.window-1]
+            for i in range(1 + self.predict_after_time, len(predictions) - self.predict_after_time):
+                predicted = predictions[i]
+                actual_value = values[i + self.window + self.predict_after_time]
+                previous_value = values[i + self.window - 1]
+                previous_predicted = predictions[i - 1 - self.predict_after_time]
                 if self.direction_metric:
                     # Based on previous
                     # if predicted > previous_value and actual_value > previous_value:
@@ -465,11 +477,17 @@ class AIManager:
                     elif predicted < previous_predicted and actual_value < previous_value:
                         correct_direction_count += 1
 
+                    # Bool
+                    # if actual_value > previous_value and predicted > 0.5:
+                    #     correct_direction_count += 1
+                    # elif actual_value < previous_value and predicted < 0.5:
+                    #     correct_direction_count += 1
+
         except KeyboardInterrupt:
             print("Ctrl+C detected. Stopping the program...")
             # Perform any necessary cleanup or finalization steps
             sys.exit(0)
 
-        if value_count - self.window == 0:
+        if len(predictions) == 0:
             return [0]
-        return [correct_direction_count/(value_count - self.window)]
+        return [correct_direction_count/len(predictions)]

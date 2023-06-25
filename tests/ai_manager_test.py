@@ -76,7 +76,7 @@ class AIManagerTests(unittest.TestCase):
         data = data_manager.get_symbol_data('AAPL', '1d')
         scaled = ai_manager.scale_for_ai(data=data)
         # x_arr, _ = ai_manager.get_xy_arrays(scaled)
-        ai_manager.create_model(shape=(200,6))
+        ai_manager.create_model(shape=(ai_manager.window,ai_manager.data_columns))
         value = ai_manager.predict_next_value(scaled)
         self.assertTrue(value >= 0 and value <= 1)
 

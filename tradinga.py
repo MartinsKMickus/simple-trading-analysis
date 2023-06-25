@@ -13,6 +13,8 @@ action_parser = parser.add_subparsers(dest='action')
 ap_train = action_parser.add_parser('train', help='Train model')
 ap_train.add_argument('--count', dest="count", metavar="COUNT",
                    help='Training symbol count')
+ap_train.add_argument('-c',  dest="c", action='store_true',
+                       help='Delete model and reset settings')
 
 ap_metrics = action_parser.add_parser('metrics', help='Get metrics for symbol data')
 ap_metrics.add_argument('-s', '--symbol', dest="symbol", metavar="SYMBOL", required=True,
@@ -34,6 +36,8 @@ args = parser.parse_args()
 
 business_logic = BusinessLogic()
 if args.action == 'train':
+    if args.c:
+        business_logic.data_analyzer.reset_model_and_settings()
     if args.count:
         business_logic.improve_model(symbol_count=args.count)
     else:
