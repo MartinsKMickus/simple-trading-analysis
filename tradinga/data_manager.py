@@ -10,6 +10,17 @@ from tradinga.settings import DATA_DIR, SYMBOL_FILE, STOCK_DIR
 
 class DataManager:
     symbols = []
+    columns_to_drop = ['adj close']
+    rsi_window = 14
+    macd_largest_window = 26
+
+    # Indicators
+    use_rsi = False
+    use_macd = False
+
+    # Data variety
+    apply_60m = False
+    apply_30m = False
 
     def __init__(self, data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR) -> None:
         self.data_dir = data_dir
@@ -66,10 +77,10 @@ class DataManager:
             Filtered data.
         """
         filtered_data = data.copy()
-        if date_from is not None:
-            filtered_data = filtered_data[(filtered_data["time"] >= date_from)]
-        if date_to is not None:
-            filtered_data = filtered_data[(filtered_data["time"] <= date_to)]
+        if isinstance(date_from, datetime.datetime):
+            filtered_data = filtered_data[(filtered_data["time"].dt.date >= date_from.date())]
+        if isinstance(date_to, datetime.datetime):
+            filtered_data = filtered_data[(filtered_data["time"].dt.date <= date_to.date())]
         return filtered_data
 
     def yfinance_get_data(
@@ -87,8 +98,10 @@ class DataManager:
         Returns:
             Downloaded data
         """
-        if interval in ["1m", "2m", "5m", "15m", "30m", "60m", "90m"]:
+        if interval in ["60m", '1h']:
             from_date = datetime.datetime.now() - datetime.timedelta(days=730)
+        elif interval in ["1m", "2m", "5m", "90m", "30m", "15m"]:
+            from_date = datetime.datetime.now() - datetime.timedelta(days=60)
         else:
             from_date = datetime.datetime.now() - datetime.timedelta(days=3000)
 
@@ -118,11 +131,10 @@ class DataManager:
         data = data.dropna(how="any")
         data.columns = data.columns.str.lower()
 
-        if interval in ["1m", "2m", "5m", "15m", "30m", "60m", "90m"]:
+        if interval in ["1m", "2m", "5m", "15m", "30m", "60m", "90m", '1h']:
             data = data.rename(columns={"datetime": "time"})
         else:
             data = data.rename(columns={"date": "time"})
-
         data["time"] = pd.to_datetime(data["time"], format="ISO8601")
 
         return data
@@ -136,19 +148,24 @@ class DataManager:
             file_name (str): Path to csv file where to save data.
 
         """
+        if len(data.columns) != 7 or 'time' not in data.columns or 'open' not in data.columns or 'close' not in data.columns or 'high' not in data.columns or 'low' not in data.columns or 'adj close' not in data.columns or 'volume' not in data.columns:
+                raise Exception(f'Save data called on modified data: {data.columns}')
         try:
+            # Discard values for today because it is not final ones during active day
+            filtered_data = data[(data["time"].dt.date < datetime.date.today())]
+
             existing_data = pd.read_csv(file_name)
             existing_data["time"] = pd.to_datetime(
                 existing_data["time"], format="ISO8601"
             )
-            concatenated_data = pd.concat([data, existing_data])
+            concatenated_data = pd.concat([filtered_data, existing_data])
             new_data = concatenated_data.drop_duplicates(subset="time")
             new_data = new_data.sort_values(by="time")
             new_data.to_csv(file_name, index=False)
         except:
             data.to_csv(file_name, index=False)
 
-    def get_symbol_data(self, symbol: str, interval: str, online=False):
+    def get_symbol_data(self, symbol: str, interval: str, online=False, additional_data: bool = True):
         """
         Gets symbol data.
         If file not available locally, then it will be downloaded.
@@ -157,6 +174,9 @@ class DataManager:
             symbol (str): Market symbol.
             interval (str): Market interval.
             online (bool): Force to download new data.
+
+        Returns:
+            Data
 
         """
         data = None
@@ -170,4 +190,116 @@ class DataManager:
 
         data = data.reset_index(drop=True)
         data["time"] = pd.to_datetime(data["time"], format="ISO8601")
+
+        for to_drop in self.columns_to_drop:
+            data = data.drop(to_drop, axis=1)
+
+        if self.use_rsi:
+            self.apply_rsi(data=data)
+        if self.use_macd:
+            self.apply_macd(data=data)
+
+        # Cut off Nan values
+        cut_off = 0
+        if self.use_rsi:
+            cut_off = self.rsi_window
+        if self.use_macd:
+            if cut_off < self.macd_largest_window:
+                cut_off = self.macd_largest_window
+        if cut_off > 0:
+            data = data[cut_off:]
+
+        # Move column 'close' to the start
+        cols = data.columns.tolist()
+        cols = ['close'] + [col for col in cols if col != 'close']
+        data = data[cols]
+
+        # TODO: FIX WRONG IMPLEMENTATION
+        # if self.apply_60m and additional_data:
+        #     data = self.add_additional_interval(data=data, symbol=symbol, interval='60m', online=online)
+        #     if 'close_60m' not in data.columns:
+        #         raise Exception('Could not get 60m data!')
+        # if self.apply_30m and additional_data:
+        #     data = self.add_additional_interval(data=data, symbol=symbol, interval='30m', online=online)
+        #     # print(data.columns)
+        #     # print(data)
+        #     if 'close_30m' not in data.columns:
+        #         raise Exception('Could not get 30m data!')
+
         return data
+    
+    def apply_rsi(self, data: pd.DataFrame):
+        """
+        Applies RSI metric on data. Including NaN values if there are some
+
+        Args:
+            data (pd.DataFrame): data
+
+        """
+        delta = data["close"].diff()
+        gain = delta.mask(delta < 0, 0)
+        loss = -delta.mask(delta > 0, 0)
+        avg_gain = gain.rolling(window=self.rsi_window).mean()
+        avg_loss = loss.rolling(window=self.rsi_window).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        data['rsi'] = rsi
+
+    def apply_macd(self, data: pd.DataFrame):
+        """
+        Applies MACD metric on data. Including NaN values if there are some
+
+        Args:
+            data (pd.DataFrame): data
+
+        """
+        exp12 = data["close"].ewm(span=12, adjust=False).mean()
+        exp26 = data["close"].ewm(span=26, adjust=False).mean()
+        macd = exp12 - exp26
+        signal = macd.ewm(span=9, adjust=False).mean()
+        histogram = macd - signal
+        data['macd_histogram'] = histogram
+        data['macd'] = macd
+        data['macd_signal'] = signal
+
+    def add_additional_interval(self, data: pd.DataFrame, symbol: str, interval: str, online=False):
+        """
+        Adds additional time interval data at the same length
+
+        Args:
+            data (pd.DataFrame): data
+            symbol (str): Market symbol.
+            interval (str): Market interval.
+            online (bool): Force to download new data.
+
+        """
+        new_data = self.get_symbol_data(symbol=symbol, interval=interval, online=online, additional_data=False)
+        if max(data["time"]).date() != max(data["time"]).date():
+            raise Exception(f'Data max time {max(data["time"]).date()} and hourly data max time {max(data["time"]).date()} unsync')
+        new_data = new_data.drop("time", axis=1)
+        if len(data) > len(new_data):
+            data = data[-len(new_data):].reset_index(drop=True)
+        else:
+            new_data = new_data[-len(data):].reset_index(drop=True)
+
+        for col in new_data.columns:
+            if col in self.columns_to_drop:
+                continue
+            data[f'{col}_{interval}'] = new_data[col]
+        return data
+        
+
+    def get_feature_count(self) -> int:
+        """
+        Gets feature count for each time unit
+
+        """
+        features = 6 - len(self.columns_to_drop)
+        if self.apply_60m:
+            features += 6 - len(self.columns_to_drop)
+        if self.use_rsi:
+            features += 1
+        if self.use_macd:
+            features += 3
+        
+        return features

@@ -4,9 +4,9 @@ SYMBOL_FILE = 'data/symbols.csv'
 
 TESTING_DIR = 'test_data'
 
-INTERVAL = '1d'
+INTERVAL = '60m'
 MIN_DATA_CHECKS = 300
 
 # Required precision defines how much model has to be correct to predict trend direction.
 # Below given number warning/failure message will be given.
-REQUIRED_PRECISION = 0.6
+REQUIRED_PRECISION = 0.6 # NOT USED

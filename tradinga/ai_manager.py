@@ -10,6 +10,7 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
 from tradinga.custom_loss import direction_loss
+from tradinga.tools import bcolors
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import absl.logging
 absl.logging.set_verbosity(absl.logging.ERROR)
@@ -24,23 +25,28 @@ from keras.utils import custom_object_scope
 MODEL_METRICS = ["mean_squared_error", "direction_sensitive_loss", "mae", "mape_loss"]
 
 class AIManager:
-    data_columns = 6
-    desired_column_index = 3  # Index of the column where the predicted value should be placed
+    data_columns = 1
+    desired_column_index = 0  # Index of the column where the predicted value should be placed
     window = 100
     one_hot_encoding_count = 0
     batch_size = 64
-    epochs = 1
+    epochs = 4
     use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
     custom_scaler = False
     model = None
     # After how much time units make prediction in future
-    predict_after_time = 3
+    predict_after_time = 7 * 2 # 7 hours multiplied with days
 
     # Metrics
     direction_metric = True
     valuation_metrics = ['Correct trend loss']
+
+    # Model confidence
+    diversity_price_threshold = 0.1 # TODO: IMPLEMENT change diversity by looking at scaler
+    diversity_threshold = 0.008
+    use_std = True
 
     def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 100) -> None:
         self.window = window
@@ -77,6 +83,7 @@ class AIManager:
 
         """
         without_time = np.array(data.drop("time", axis=1))
+        # print(data.columns)
         if self.custom_scaler:
             return self.scaler.transform(without_time)
         else:
@@ -186,23 +193,26 @@ class AIManager:
             Model (tf.keras.models.Sequential)
 
         """
+        print(f'Model input shape: {i_shape}')
         model = tf.keras.models.Sequential()
+        model.add(tf.keras.layers.Dense(300, input_shape=i_shape, activation='relu'))
         model.add(
             tf.keras.layers.LSTM(
-                units=200, return_sequences=True, input_shape=i_shape
+                units=90, return_sequences=True
             )
         )
-        model.add(tf.keras.layers.Dropout(0.55))
-        model.add(tf.keras.layers.LSTM(units=50))
-        model.add(tf.keras.layers.Dense(250))
-        model.add(tf.keras.layers.Dropout(0.65))
-        # model.add(tf.keras.layers.Dense(1024))
-        model.add(tf.keras.layers.Reshape((1, 250)))
+        model.add(tf.keras.layers.Dropout(0.2))
+        model.add(tf.keras.layers.LSTM(units=40))
+        model.add(tf.keras.layers.Dense(300, activation='relu'))
+        model.add(tf.keras.layers.Dropout(0.4))
+        model.add(tf.keras.layers.Reshape((1, 300)))
         model.add(tf.keras.layers.LSTM(units=10))
-        model.add(tf.keras.layers.Dense(500))
-        model.add(tf.keras.layers.Dense(units=output))
+        model.add(tf.keras.layers.Dense(300))
+        model.add(tf.keras.layers.Dense(10))
+        model.add(tf.keras.layers.Dense(units=output)) # , activation='sigmoid'
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        model.compile(optimizer="SGD", loss=direction_loss, metrics=["mean_squared_error", "mae"]) # RMSprop, Adagrad, SGD, Adam
+        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.00001) # RMSprop, Adagrad, SGD, Adam
+        model.compile(optimizer=edited_optimizer, loss="mae", metrics=["mean_squared_error", direction_loss])
         model.summary()
         return model
     
@@ -240,6 +250,27 @@ class AIManager:
         model.compile(optimizer="adam", loss=direction_loss, metrics=["mean_squared_error", "mae"])
         model.summary()
         return model
+
+    # def model_structure_features(self, i_shapes=(200, 6), output=1):
+    #     # Features as inputs
+    #     input1 = tf.keras.layers.Input(shape=(200,))
+    #     input2 = tf.keras.layers.Input(shape=(200,))
+
+
+    #     # Process the first input in its own layer
+    #     layer1_output = tf.keras.layers.Dense(units=64, activation='relu')(input1)
+    #     # Process the second input in its own layer
+    #     layer2_output = tf.keras.layers.Dense(units=32, activation='relu')(input2)
+
+    #     # Concatenate the outputs from the two layers
+    #     concatenated = tf.keras.layers.concatenate([layer1_output, layer2_output])
+
+    #     # Continue with additional layers as needed
+    #     output = tf.keras.layers.Dense(units=1, activation='sigmoid')(concatenated)
+
+    #     # Create the model
+    #     model = tf.keras.models.Model(inputs=[input1, input2], outputs=output)
+    #     return model
 
     def load_model(self):
         """
@@ -381,32 +412,52 @@ class AIManager:
                     verbose='0',
                 )
 
-    def predict_next_value(self, values: np.ndarray, one_hot_encoding = None) -> int:
+    def predict_next_value(self, values: np.ndarray, one_hot_encoding = None) -> tuple[float, float]:
         """
-        Gets next (predicted) value for scaled values.
+        Gets next (predicted) value for scaled values and confidence.
 
         Args:
             values (np.ndarray): Scaled values.
             one_hot_encoding: UNDER DEVELOPMENT
 
         Returns:
-            Predicted value.
+            (Predicted value, confidence)
 
         """
         if not isinstance(self.model, tf.keras.Model):
             print("Predict called but model does not exist!")
             raise Exception("No model loaded")
         
-        input = values[-self.window:]
-        input = np.expand_dims(values[-self.window:], axis=0)
-        # predict future values
-        # One hot encoding
-        if isinstance(one_hot_encoding, np.ndarray):
-            predicted = self.model.predict([input, one_hot_encoding], verbose='0')
-        else:
-            predicted = self.model.predict(input, verbose='0')
+        input_values = values[-self.window:]
+        input_values = np.expand_dims(input_values, axis=0)
         
-        return predicted[0][0]
+        # Monte Carlo Dropout predictions with confidence estimates
+        num_samples = 100
+        predictions = np.zeros((num_samples, 1))
+
+        # import tensorflow.keras.backend as K
+        # K.set_learning_phase(1)
+        for i in range(num_samples):
+            predictions[i] = self.model(input_values, training=True)
+
+        # Compute mean and standard deviation for each prediction
+        mean_prediction = np.mean(predictions)
+        std_prediction = np.std(predictions)
+
+        if std_prediction == 0:
+            confidence = 1.0  # All predicted values are the same
+            print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
+        elif std_prediction >= self.diversity_threshold:
+            confidence = 0.0  # Diversity exceeds or equals the threshold
+        else:
+            diversity = np.max(predictions) - np.min(predictions)
+            if self.use_std:
+                confidence = max(1.0 - float(std_prediction / self.diversity_threshold), 0.0)
+            else:
+                confidence = max(1.0 - float(diversity / self.diversity_threshold), 0.0)
+
+        prediction = float(mean_prediction)
+        return prediction, confidence
     
     def predict_all_values(self, values: np.ndarray, one_hot_encoding = None) -> np.ndarray:
         """
@@ -457,8 +508,9 @@ class AIManager:
         # max_change = 0.3
         # print(f'Required change: {max_change}')
         predictions = self.scale_back_value(self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding))
+        # TODO: IMPLEMENT BOOL METRIC rather that precise value prediction
         # predictions_bool = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding)
-        values = self.scale_back_value(value=values[:,3])
+        values = self.scale_back_value(value=values[:,self.desired_column_index])
         try:
             for i in range(1 + self.predict_after_time, len(predictions) - self.predict_after_time):
                 predicted = predictions[i]
