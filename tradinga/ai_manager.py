@@ -43,9 +43,8 @@ class AIManager:
     direction_metric = True
     valuation_metrics = ['Correct trend loss']
 
-    # Model confidence
-    diversity_price_threshold = 0.1 # TODO: IMPLEMENT change diversity by looking at scaler
-    diversity_threshold = 0.008
+    # Model confidence (variance in percentage). This could be considered as risk (maybe)
+    diversity_threshold = 0.01
     use_std = True
 
     def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 100) -> None:
@@ -444,6 +443,8 @@ class AIManager:
         mean_prediction = np.mean(predictions)
         std_prediction = np.std(predictions)
 
+        # Implementation of #31 had no correct assumption. Code is cleaned up instead.
+        
         if std_prediction == 0:
             confidence = 1.0  # All predicted values are the same
             print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
