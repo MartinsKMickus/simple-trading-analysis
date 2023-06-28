@@ -22,36 +22,42 @@ class BusinessLogic:
     min_max = True
     current_date = datetime.datetime.now()
     def __init__(self) -> None:
-        self.data_analyzer = DataAnalyzer(window=200)
+        # 7 hours a day market is open. 100 days around 700 hours -> 600
+        self.data_analyzer = DataAnalyzer(window=600)
         self.data_analyzer.ai_manager.load_model()
 
-    def get_predicted_change(self, symbol: str, last_date: datetime.datetime) -> tuple[datetime.date, tuple[float, float, float, float, float, float, float]]:
+    def get_predicted_change(self, symbol: str, last_date: datetime.datetime) -> tuple[datetime.date, tuple[float, float, float, float, float, float, float, float, float]]:
         """
         Gets last real value predicted price change in percentage and value. Based on last_real -> predicted and last_predicted -> predicted changes
         Args:
             symbol (str): Symbol name.
 
         Returns:
-            tuple[last real, real percentage change, real value change, last predicted, predicted percentage change, predicted value change, trend precision]
+            tuple[last real, real percentage change, real value change, last predicted, predicted percentage change, predicted value change, trend precision, prediction confidence, prev value prediction confidence]
         """
-        result = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        result = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval)#, online=True)
         if max(data['time']) < last_date:
             data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval, online=True)
         filtered_data = self.data_analyzer.data_manager.filter_data(data=data, date_to=last_date)
         scaled_data = self.data_analyzer.ai_manager.scale_for_ai(filtered_data)
 
-        predicted = self.data_analyzer.ai_manager.scale_back_value(self.data_analyzer.ai_manager.predict_next_value(values=scaled_data))[0]
+        predicted, confidence = self.data_analyzer.ai_manager.predict_next_value(values=scaled_data)
+        predicted = self.data_analyzer.ai_manager.scale_back_value(predicted)[0]
 
         # last_real -> predicted
         result[0] = filtered_data.iloc[-1]['close']
-        result[1] = round((predicted-result[0])/result[0]*100, 2)
+        result[1] = (predicted-result[0])/result[0]
         result[2] = round(predicted - result[0], 2)
         # last_predicted -> predicted
-        result[3] = self.data_analyzer.ai_manager.scale_back_value(self.data_analyzer.ai_manager.predict_next_value(values=scaled_data[:-1]))[0]
-        result[4] = round((predicted-result[3])/result[3]*100, 2)
+        predicted_prev, confidence_prev = self.data_analyzer.ai_manager.predict_next_value(values=scaled_data[:-1-self.data_analyzer.ai_manager.predict_after_time])
+        result[3] = self.data_analyzer.ai_manager.scale_back_value(predicted_prev)[0]
+        result[4] = (predicted-result[3])/result[3]
         result[5] = round(predicted - result[3], 2)
         result[6] = self.data_analyzer.ai_manager.get_metrics_on_data(values=scaled_data, symbol=symbol)[0]
+        result[7] = confidence
+        result[8] = confidence_prev
+
         
         return (datetime.datetime.date(filtered_data.iloc[-1]["time"]), tuple(result))
 
@@ -64,12 +70,14 @@ class BusinessLogic:
         
         result_date, result = self.get_predicted_change(symbol=symbol, last_date=last_date)
         if result_date != last_date.date():
-                print(f'{bcolors.WARNING}Last date: {result_date} of {symbol} is not correct!{bcolors.ENDC}')
+                print(f'{bcolors.WARNING}Last date: {result_date} of {symbol} is not correct! {last_date.date()} was chosen{bcolors.ENDC}')
         if self.data_analyzer.in_exclude(symbol=symbol):
             print(f'{bcolors.WARNING}Warning! Symbol is in except symbol list{bcolors.ENDC}')
-        print(f'For stock {symbol} after: {result_date} with price: {result[0]}')
-        print(f'Last real -> Predicted change: {result[1]}% that is: {result[2]}')
-        print(f'Last predicted -> Predicted change: {result[4]}% that is: {result[5]}')
+        print(f'For stock {symbol} after: {result_date} with price: {round(result[0], 2)}')
+        print(f'Last real -> Predicted change: {round(result[1]*100, 2)}% that is: {result[2]}')
+        print(f'Last predicted -> Predicted change: {round(result[4]*100, 2)}% that is: {result[5]}')
+        print(f'Model confidence: {round(result[7]*100, 2)}%')
+        print(f'Model confidence of last predicted: {round(result[8]*100, 2)}%')
 
     def show_prediction_chart(self, symbol: str):
         """
@@ -116,7 +124,7 @@ class BusinessLogic:
         metrics = self.data_analyzer.ai_manager.get_metrics_on_data(values=scaled_data, symbol=symbol)
         print(f'Trend precision for {symbol} is: {metrics[0]}')
 
-    def predict_market(self, last_date: datetime.datetime = datetime.datetime.now()):
+    def predict_market(self, last_date: datetime.datetime = current_date):
         """
         Gets model predictions for stock market and saves data in file.
 
@@ -151,7 +159,9 @@ class BusinessLogic:
                 'last_predicted_price': [results[3]],
                 'pred_percent': [results[4]],
                 'predicted_change': [results[5]],
-                'trend_precision': [results[6]]
+                'trend_precision': [results[6]],
+                'prediction confidence': [results[7]],
+                'prev value prediction confidence': [results[8]]
             })
             # print(new_row)
             market_results = pd.concat([market_results, new_row], ignore_index=True)
@@ -159,5 +169,5 @@ class BusinessLogic:
 
         if not os.path.exists(f'{settings.DATA_DIR}/predictions'):
             os.makedirs(f'{settings.DATA_DIR}/predictions')
-        market_results.to_csv(f'{settings.DATA_DIR}/predictions/Predictions_{last_date.date()}.csv', index=False)
+        market_results.to_csv(f'{settings.DATA_DIR}/predictions/Predictions_{self.data_analyzer.interval}_{last_date.date()}.csv', index=False)
 

@@ -11,6 +11,7 @@ import random
 import sys
 from matplotlib import pyplot as plt
 import numpy as np
+from tradinga import settings
 
 from tradinga.tools import bcolors, query_yes_no
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -39,9 +40,8 @@ class DataAnalyzer:
         self.use_min_max = False
         self.except_symbols = []
         self.load_settings()
-        self.interval = '1d'
+        self.interval = settings.INTERVAL
         self.window = window
-        self.features = 6
         self.min_data_checks = MIN_DATA_CHECKS
         self.data_manager = DataManager(data_dir=data_dir, stock_dir=stock_dir)
         self.data_manager.get_nasdaq_symbols(symbol_file=symbol_file)
@@ -61,7 +61,7 @@ class DataAnalyzer:
             print(f'WARNING! Settings not loaded!')
             self.ai_manager = AIManager(data_dir=data_dir, model_name=self.analyzer_name, one_hot_encoding_count=self.one_hot, window=self.window)
         self.ai_manager.window = self.window
-        self.ai_manager.data_columns = self.features
+        self.ai_manager.data_columns = self.data_manager.get_feature_count()
 
         # Last initializations
         self.load_symbol_indices()
@@ -141,7 +141,7 @@ class DataAnalyzer:
         if query_yes_no(question="Are you sure to delete model and reset settings?", default='no'):
             if os.path.exists(self.ai_manager.ai_location):
                 shutil.rmtree(self.ai_manager.ai_location, ignore_errors=True)
-            self.ai_manager.create_model((self.window, self.features))
+            self.ai_manager.create_model((self.window, self.data_manager.get_feature_count()))
             self.fit_times = 0
             self.model_except = []
             self.precision = 0
@@ -325,9 +325,9 @@ class DataAnalyzer:
             # One hot encoding
             if self.use_one_hot:
 
-                self.ai_manager.create_model2(data_shape=(self.window, self.features), category_shape=(self.one_hot))
+                self.ai_manager.create_model2(data_shape=(self.window, self.data_manager.get_feature_count()), category_shape=(self.one_hot))
             else:
-                self.ai_manager.create_model((self.window, self.features))
+                self.ai_manager.create_model((self.window, self.data_manager.get_feature_count()))
             self.ai_manager.save_model()
 
         shuffled_list = self.data_manager.symbols.copy()
@@ -357,7 +357,7 @@ class DataAnalyzer:
         plot_process = Process(target=self.update_plot, args=(queue,))
         plot_process.start()
         data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
-        scaled = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval))
+        scaled = self.ai_manager.scale_for_ai(data=data)
         val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
         predicted = self.ai_manager.scale_back_value(self.ai_manager.predict_all_values(values=scaled))
         plot_data = data[['time', 'close']].copy()
@@ -495,22 +495,21 @@ class DataAnalyzer:
             #     print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
             #     self.model_highest_loss = fast_eval * 100
             # ALTERNATIVE
-            required_precision_coef = 0.9
-            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 30: # and self.fit_times % 5 == 0
+            required_precision_coef = 0.85
+            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 0: # and self.fit_times % 5 == 0
                 print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Lowest allowed precision updated: {self.model_lowest_precision} -> {precision * required_precision_coef}{bcolors.ENDC}")
                 self.model_lowest_precision = precision * required_precision_coef
 
             # Statistics
             self.precision_values.append(new_precision)
             data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
-            scaled = self.ai_manager.scale_for_ai(data=self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval))
+            scaled = self.ai_manager.scale_for_ai(data=data)
             val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
             predicted = self.ai_manager.scale_back_value(self.ai_manager.predict_all_values(values=scaled))
             plot_data = data[['time', 'close']].copy()
             plot_data = plot_data.iloc[self.window:]
             plot_data['predicted'] = predicted
             queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
-            # queue.put(self.precision_values)
 
             # Status
             if symbol_count > len(shuffled_list):

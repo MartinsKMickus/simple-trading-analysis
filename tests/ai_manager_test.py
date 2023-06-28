@@ -77,7 +77,7 @@ class AIManagerTests(unittest.TestCase):
         scaled = ai_manager.scale_for_ai(data=data)
         # x_arr, _ = ai_manager.get_xy_arrays(scaled)
         ai_manager.create_model(shape=(ai_manager.window,ai_manager.data_columns))
-        value = ai_manager.predict_next_value(scaled)
+        value, _ = ai_manager.predict_next_value(scaled)
         self.assertTrue(value >= 0 and value <= 1)
 
     # def test_one_hot_encoding(self):
