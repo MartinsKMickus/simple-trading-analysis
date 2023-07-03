@@ -17,13 +17,13 @@ AI stock market recommendation generator.
 - `train` Create or retrain model (While training process can be stopped with Ctrl+C)
   - `--count COUNT` Count on how many symbols model has to be trained (Default: All symbols)
   - `-c` Clean settings and delete model before training
-- `metrics` Predict symbol value
+- `metrics` Get metrics for symbol and strategy
   - `-s/--symbol SIMBOL` Single symbol analysis (REQUIRED)
   - `-p` Plot data of predicted values on top of actual values
 - `predict` Predict symbol value
   - `-s/--symbol SIMBOL` Single symbol analysis (REQUIRED)
   - `--last-date YYYY/MM/DD` Make prediction from this date
-- `predict_market` Predict symbol value
+- `predict_market` Predict next market values and make csv with predictions
   - `--last-date YYYY/MM/DD` Make prediction from this date
 
 

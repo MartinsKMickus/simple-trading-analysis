@@ -1,12 +1,12 @@
 
 
-import datetime
+# import datetime
 import json
 from multiprocessing import Process, Queue
 import os
 import shutil
-import threading
-from memory_profiler import profile
+# import threading
+# from memory_profiler import profile
 import random
 import sys
 from matplotlib import pyplot as plt
@@ -164,7 +164,10 @@ class DataAnalyzer:
             return
         
         for symbol in tqdm.tqdm(self.data_manager.symbols, desc='Filtering out stocks'):#self.data_manager.symbols:
-            loaded_data = self.data_manager.get_symbol_data(symbol=symbol, interval=self.interval)
+            try:
+                loaded_data = self.data_manager.get_symbol_data(symbol=symbol, interval=self.interval)
+            except:
+                continue
 
             value = loaded_data['open'].max()
             if value > self.max_values[0]:
@@ -182,9 +185,9 @@ class DataAnalyzer:
             value = loaded_data['close'].max()
             if value > self.max_values[3]:
                 self.max_values[3] = loaded_data['close'].max()
-            value = loaded_data['adj close'].max()
-            if value > self.max_values[4]:
-                self.max_values[4] = loaded_data['adj close'].max()
+            # value = loaded_data['adj close'].max()
+            # if value > self.max_values[4]:
+            #     self.max_values[4] = loaded_data['adj close'].max()
             value = loaded_data['volume'].max()
             if value > self.max_values[5]:
                 self.max_values[5] = loaded_data['volume'].max()
@@ -197,8 +200,8 @@ class DataAnalyzer:
                 self.min_values[2] = loaded_data['low'].min()
             if loaded_data['close'].min() < self.max_values[3]:
                 self.min_values[3] = loaded_data['close'].min()
-            if loaded_data['adj close'].min() < self.max_values[4]:
-                self.min_values[4] = loaded_data['adj close'].min()
+            # if loaded_data['adj close'].min() < self.max_values[4]:
+            #     self.min_values[4] = loaded_data['adj close'].min()
             if loaded_data['volume'].min() < self.max_values[5]:
                 self.min_values[5] = loaded_data['volume'].min()
         
@@ -366,7 +369,7 @@ class DataAnalyzer:
         queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
 
         while i < symbol_count and i < len(shuffled_list):
-            if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except:
+            if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except or shuffled_list[i] in settings.EXCLUDE:
                 # print(f'Skipping symbol {shuffled_list[i]}. Symbol in except list')
                 symbol_count += 1
                 i += 1
@@ -495,8 +498,8 @@ class DataAnalyzer:
             #     print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
             #     self.model_highest_loss = fast_eval * 100
             # ALTERNATIVE
-            required_precision_coef = 0.85
-            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 0: # and self.fit_times % 5 == 0
+            required_precision_coef = 0.67
+            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 10: # 10 for trying to get overall market strategy
                 print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Lowest allowed precision updated: {self.model_lowest_precision} -> {precision * required_precision_coef}{bcolors.ENDC}")
                 self.model_lowest_precision = precision * required_precision_coef
 
