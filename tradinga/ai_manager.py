@@ -30,22 +30,24 @@ class AIManager:
     window = 100
     one_hot_encoding_count = 0
     batch_size = 64
-    epochs = 4
+    epochs = 1
     use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
     custom_scaler = False
     model = None
     # After how much time units make prediction in future
-    predict_after_time = 7 * 2 # 7 hours multiplied with days
+    predict_after_time = 10 #round(10/(3/5)) #10 # 7 hours in one working day.
 
     # Metrics
     direction_metric = True
     valuation_metrics = ['Correct trend loss']
 
-    # Model confidence (variance in percentage). This could be considered as risk (maybe)
-    diversity_threshold = 0.01
+    # Monte Carlo model confidence (variance in percentage).
+    monte_carlo_samples = 100
+    diversity_threshold = 0.01 # This is how much toward last value take profit has to be moved
     use_std = True
+    batch_memory = 1024
 
     def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 100) -> None:
         self.window = window
@@ -194,23 +196,23 @@ class AIManager:
         """
         print(f'Model input shape: {i_shape}')
         model = tf.keras.models.Sequential()
-        model.add(tf.keras.layers.Dense(300, input_shape=i_shape, activation='relu'))
+        model.add(tf.keras.layers.Dense(500, input_shape=i_shape)) # , activation='relu'
         model.add(
             tf.keras.layers.LSTM(
                 units=90, return_sequences=True
             )
         )
-        model.add(tf.keras.layers.Dropout(0.2))
+        model.add(tf.keras.layers.Dropout(0.25))
         model.add(tf.keras.layers.LSTM(units=40))
-        model.add(tf.keras.layers.Dense(300, activation='relu'))
-        model.add(tf.keras.layers.Dropout(0.4))
+        model.add(tf.keras.layers.Dense(300)) # , activation='relu'
+        model.add(tf.keras.layers.Dropout(0.25))
         model.add(tf.keras.layers.Reshape((1, 300)))
         model.add(tf.keras.layers.LSTM(units=10))
-        model.add(tf.keras.layers.Dense(300))
-        model.add(tf.keras.layers.Dense(10))
+        model.add(tf.keras.layers.Dense(300)) # , activation='relu'
+        model.add(tf.keras.layers.Dense(10)) # , activation='relu'
         model.add(tf.keras.layers.Dense(units=output)) # , activation='sigmoid'
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.00001) # RMSprop, Adagrad, SGD, Adam
+        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.00005) # RMSprop, Adagrad, SGD, Adam
         model.compile(optimizer=edited_optimizer, loss="mae", metrics=["mean_squared_error", direction_loss])
         model.summary()
         return model
@@ -431,12 +433,11 @@ class AIManager:
         input_values = np.expand_dims(input_values, axis=0)
         
         # Monte Carlo Dropout predictions with confidence estimates
-        num_samples = 100
-        predictions = np.zeros((num_samples, 1))
+        predictions = np.zeros((self.monte_carlo_samples, 1))
 
         # import tensorflow.keras.backend as K
         # K.set_learning_phase(1)
-        for i in range(num_samples):
+        for i in range(self.monte_carlo_samples):
             predictions[i] = self.model(input_values, training=True)
 
         # Compute mean and standard deviation for each prediction
@@ -460,7 +461,7 @@ class AIManager:
         prediction = float(mean_prediction)
         return prediction, confidence
     
-    def predict_all_values(self, values: np.ndarray, one_hot_encoding = None) -> np.ndarray:
+    def predict_all_values(self, values: np.ndarray, one_hot_encoding = None, monte_carlo: bool = False):
         """
         Gets all values that can be predicted within provided data amount from window size -> end of data.
 
@@ -481,14 +482,48 @@ class AIManager:
             x_array.append(values[x-self.window:x])
 
         values = np.array(x_array)
-        # values = np.reshape(x_array, (x_array.shape[0], x_array.shape[1], 1))
 
-        if isinstance(one_hot_encoding, np.ndarray):
-            predicted = self.model.predict([values, one_hot_encoding], verbose='0')
+        if monte_carlo:
+            # Monte Carlo Dropout predictions with confidence estimates
+            predictions = np.zeros((self.monte_carlo_samples, len(values)))
+
+            # tf.keras.backend.set_learning_phase(1)
+            for i in tqdm.tqdm(range(self.monte_carlo_samples), desc='Monte Carlo dropout calculations'):
+                for batch_pred in range(0, len(values), self.batch_memory):
+                    if batch_pred + self.batch_memory > len(values):
+                        max_border = len(values)
+                    else:
+                        max_border = batch_pred + self.batch_memory
+
+                    predictions[i, batch_pred:max_border] = np.array(self.model(values[batch_pred:max_border], training=True)).flatten() #predict(values).flatten() # , training=True
+
+            # Compute mean and standard deviation for each prediction
+            mean_predictions = np.mean(predictions, axis=0)
+            std_predictions = np.std(predictions, axis=0)
+            confidence_scores = []
+            # Implementation of #31 had no correct assumption. Code is cleaned up instead.
+            for std_prediction in std_predictions:
+                if std_prediction == 0:
+                    confidence = 1.0  # All predicted values are the same
+                    print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
+                elif std_prediction >= self.diversity_threshold:
+                    confidence = 0.0  # Diversity exceeds or equals the threshold
+                else:
+                    diversity = np.max(predictions) - np.min(predictions)
+                    if self.use_std:
+                        confidence = max(1.0 - float(std_prediction / self.diversity_threshold), 0.0)
+                    else:
+                        confidence = max(1.0 - float(diversity / self.diversity_threshold), 0.0)
+                confidence_scores.append(confidence)
+                
+            return mean_predictions, confidence_scores
         else:
-            predicted = self.model.predict(values, verbose='0')
+            if isinstance(one_hot_encoding, np.ndarray):
+                predicted = self.model.predict([values, one_hot_encoding], verbose='0')
+            else:
+                predicted = self.model.predict(values, verbose='0')
 
-        return predicted
+            return predicted
 
     def get_metrics_on_data(self, values: np.ndarray, symbol: str = '', one_hot_encoding = None) -> list[float]:
         """

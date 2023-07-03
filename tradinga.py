@@ -44,6 +44,7 @@ if args.action == 'train':
         business_logic.improve_model()
 elif args.action == 'metrics':
     business_logic.print_metric_summary(symbol=args.symbol)
+    business_logic.strategy_tester(symbol=args.symbol)
     if args.p:
         business_logic.show_prediction_chart(symbol=args.symbol)
 elif args.action == 'predict':
