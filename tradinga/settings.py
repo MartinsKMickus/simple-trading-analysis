@@ -13,9 +13,14 @@ EXCLUDE = []
 # Below given number warning/failure message will be given.
 REQUIRED_PRECISION = 0.6 # NOT USED
 
-# Strategy tester:
-MIN_CONFIDENCE = 0.72
-REWARD_RISK_RATIO = 1.5
-MIN_REQUIRED_PROFIT = 0.035
-MAX_REQUIRED_PROFIT = 0.5
+# Strategy tester settings:
+MIN_CONFIDENCE = 0.4
+REWARD_RISK_RATIO = 1
+RISK_FROM_VALUE = 0.02
+MIN_REQUIRED_PROFIT = 0.03
+MAX_REQUIRED_PROFIT = 1
 START_BALANCE = 2000.00
+# Only take long positions
+CASH_ACCOUNT = False
+# Take a look at only first hour of the day
+FIRST_DAY_HOUR = False

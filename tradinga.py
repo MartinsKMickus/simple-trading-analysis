@@ -12,7 +12,7 @@ action_parser = parser.add_subparsers(dest='action')
 
 ap_train = action_parser.add_parser('train', help='Train model')
 ap_train.add_argument('--count', dest="count", metavar="COUNT",
-                   help='Training symbol count')
+                   type=int, help='Training symbol count')
 ap_train.add_argument('-c',  dest="c", action='store_true',
                        help='Delete model and reset settings')
 
@@ -31,6 +31,8 @@ ap_predict.add_argument('--last-date', dest="last_date", metavar="LAST_DATE",
 ap_predict_market = action_parser.add_parser('predict_market', help='Predict market')
 ap_predict_market.add_argument('--last-date', dest="last_date", metavar="LAST_DATE",
                    help='Last date to do analysis after YYYY/MM/DD')
+ap_predict_market.add_argument('--count', dest="count", metavar="COUNT",
+                   type=int, help='Symbol count to check')
 
 args = parser.parse_args()
 
@@ -53,10 +55,16 @@ elif args.action == 'predict':
     else:
         business_logic.predict_next_close(symbol=args.symbol)
 elif args.action == 'predict_market':
-    if args.last_date:
-        business_logic.predict_market(last_date=datetime.datetime.strptime(args.last_date, '%Y/%m/%d'))
+    if args.count:
+        symbol_count = args.count
+        shuffle = True
     else:
-        business_logic.predict_market()
+        symbol_count = 0
+        shuffle = False
+    if args.last_date:
+        business_logic.predict_market(last_date=datetime.datetime.strptime(args.last_date, '%Y/%m/%d'), shuffle=shuffle, symbol_count=symbol_count)
+    else:
+        business_logic.predict_market(shuffle=shuffle, symbol_count=symbol_count)
 
 
 # business_logic.show_prediction_chart(symbol='NIO')

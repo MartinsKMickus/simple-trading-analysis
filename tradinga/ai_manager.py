@@ -1,16 +1,13 @@
 import datetime
 import os
-import signal
 import sys
-import warnings
-from matplotlib import pyplot as plt
 
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+from tradinga import settings
 
 from tradinga.custom_loss import direction_loss
-from tradinga.tools import bcolors
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import absl.logging
 absl.logging.set_verbosity(absl.logging.ERROR)
@@ -25,12 +22,12 @@ from keras.utils import custom_object_scope
 MODEL_METRICS = ["mean_squared_error", "direction_sensitive_loss", "mae", "mape_loss"]
 
 class AIManager:
-    data_columns = 1
+    data_columns = 1 # DO NOT CHANGE!!!
     desired_column_index = 0  # Index of the column where the predicted value should be placed
-    window = 100
+    window = 5 # DO NOT CHANGE!!!
     one_hot_encoding_count = 0
     batch_size = 64
-    epochs = 1
+    epochs = 8
     use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
@@ -47,9 +44,13 @@ class AIManager:
     monte_carlo_samples = 100
     diversity_threshold = 0.01 # This is how much toward last value take profit has to be moved
     use_std = True
-    batch_memory = 1024
+    batch_memory = 512
 
-    def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 100) -> None:
+    # Required model confidence to base metric score on. Model could be wrong in most cases but with low confidence.
+    # We'll assume model should get better with confidence scores over 50%
+    required_confidence = 0.4
+
+    def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 5) -> None:
         self.window = window
         self.ai_location = data_dir + "/models/" + f"MODEL_{model_name}{self.window}"
         self.one_hot_encoding_count = one_hot_encoding_count
@@ -196,24 +197,17 @@ class AIManager:
         """
         print(f'Model input shape: {i_shape}')
         model = tf.keras.models.Sequential()
-        model.add(tf.keras.layers.Dense(500, input_shape=i_shape)) # , activation='relu'
-        model.add(
-            tf.keras.layers.LSTM(
-                units=90, return_sequences=True
-            )
-        )
-        model.add(tf.keras.layers.Dropout(0.25))
-        model.add(tf.keras.layers.LSTM(units=40))
-        model.add(tf.keras.layers.Dense(300)) # , activation='relu'
-        model.add(tf.keras.layers.Dropout(0.25))
-        model.add(tf.keras.layers.Reshape((1, 300)))
-        model.add(tf.keras.layers.LSTM(units=10))
-        model.add(tf.keras.layers.Dense(300)) # , activation='relu'
-        model.add(tf.keras.layers.Dense(10)) # , activation='relu'
+        model.add(tf.keras.layers.LSTM(units=8, return_sequences=True, input_shape=i_shape)) # It is important to capture order rather than values at first
+        model.add(tf.keras.layers.Dense(16, input_shape=i_shape)) # Dense layer provides individual value importance after LSTM
+        model.add(tf.keras.layers.Dropout(0.01))
+        model.add(tf.keras.layers.LSTM(units=4))
+        model.add(tf.keras.layers.Dense(4))
+        # model.add(tf.keras.layers.Reshape((1, 300)))
+        # model.add(tf.keras.layers.GlobalAveragePooling1D())
         model.add(tf.keras.layers.Dense(units=output)) # , activation='sigmoid'
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.00005) # RMSprop, Adagrad, SGD, Adam
-        model.compile(optimizer=edited_optimizer, loss="mae", metrics=["mean_squared_error", direction_loss])
+        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001) # RMSprop, Adagrad, SGD, Adam
+        model.compile(optimizer=edited_optimizer, loss=direction_loss, metrics=["mean_squared_error", "mae"])
         model.summary()
         return model
     
@@ -448,7 +442,7 @@ class AIManager:
         
         if std_prediction == 0:
             confidence = 1.0  # All predicted values are the same
-            print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
+            # print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
         elif std_prediction >= self.diversity_threshold:
             confidence = 0.0  # Diversity exceeds or equals the threshold
         else:
@@ -488,7 +482,7 @@ class AIManager:
             predictions = np.zeros((self.monte_carlo_samples, len(values)))
 
             # tf.keras.backend.set_learning_phase(1)
-            for i in tqdm.tqdm(range(self.monte_carlo_samples), desc='Monte Carlo dropout calculations'):
+            for i in tqdm.tqdm(range(self.monte_carlo_samples), delay=8, desc='Monte Carlo dropout calculations'):
                 for batch_pred in range(0, len(values), self.batch_memory):
                     if batch_pred + self.batch_memory > len(values):
                         max_border = len(values)
@@ -505,7 +499,7 @@ class AIManager:
             for std_prediction in std_predictions:
                 if std_prediction == 0:
                     confidence = 1.0  # All predicted values are the same
-                    print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
+                    # print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
                 elif std_prediction >= self.diversity_threshold:
                     confidence = 0.0  # Diversity exceeds or equals the threshold
                 else:
@@ -521,7 +515,7 @@ class AIManager:
             if isinstance(one_hot_encoding, np.ndarray):
                 predicted = self.model.predict([values, one_hot_encoding], verbose='0')
             else:
-                predicted = self.model.predict(values, verbose='0')
+                predicted = np.array(self.model(values)) # , verbose='0'
 
             return predicted
 
@@ -539,17 +533,21 @@ class AIManager:
 
         """
         correct_direction_count = 0
-        # - 1 Because last value is for comparison only
-        # value_count = len(values) - 1
-        # max_change = 0.3
-        # print(f'Required change: {max_change}')
-        predictions = self.scale_back_value(self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding))
+        predictions, confidences = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=True)
+        predictions = self.scale_back_value(predictions)
+        # We need to check exact values of passing confidences to calculate average.
+        # If all predictions was right then confidence should be also 100% but if it is not then metric cannot exceed average of these confidences (to make model provide correct confidence)
+        # In other cases metric could be just accuracy of predictions
+        checked_confidences = []
         # TODO: IMPLEMENT BOOL METRIC rather that precise value prediction
         # predictions_bool = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding)
         values = self.scale_back_value(value=values[:,self.desired_column_index])
         try:
             for i in range(1 + self.predict_after_time, len(predictions) - self.predict_after_time):
                 predicted = predictions[i]
+                if confidences[i] < self.required_confidence:
+                    continue
+                checked_confidences.append(confidences[i])
                 actual_value = values[i + self.window + self.predict_after_time]
                 previous_value = values[i + self.window - 1]
                 previous_predicted = predictions[i - 1 - self.predict_after_time]
@@ -576,6 +574,13 @@ class AIManager:
             # Perform any necessary cleanup or finalization steps
             sys.exit(0)
 
-        if len(predictions) == 0:
+        if len(checked_confidences) == 0:
+            # There were no predictions above defined confidence. In this case accuracy should be 0 for this stock
             return [0]
-        return [correct_direction_count/len(predictions)]
+        
+        accuracy = correct_direction_count/len(checked_confidences)
+        conf_average = sum(checked_confidences)/len(checked_confidences)
+        if accuracy > conf_average:
+            accuracy = conf_average
+
+        return [accuracy]

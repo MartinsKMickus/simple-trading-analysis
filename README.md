@@ -11,7 +11,14 @@ AI stock market recommendation generator.
 - Install requirements.txt
 
 ## How to run:
-- `python tradinga.py` Right now this command doesn't do anything. Arguments have to be added.
+Use: `python tradinga.py` and add arguments.
+
+1. Train model by using `train` argument.
+2. Test model reliability by using `metrics` argument. Use different symbols to test. Tweak `settings.py` for best results.
+3. Either use `predict` argument to predict specific symbol value afer provided date or use `predict_market` argument to get summarized report of all market of downloaded symbols.
+
+<b>Note that `predict_market` is time consuming action!</b>
+
 
 ### Arguments
 - `train` Create or retrain model (While training process can be stopped with Ctrl+C)
@@ -25,6 +32,7 @@ AI stock market recommendation generator.
   - `--last-date YYYY/MM/DD` Make prediction from this date
 - `predict_market` Predict next market values and make csv with predictions
   - `--last-date YYYY/MM/DD` Make prediction from this date
+  - `--count COUNT` How much symbols to analyze. Will go in random order (Default: All symbols)
 
 
 ## Code structure

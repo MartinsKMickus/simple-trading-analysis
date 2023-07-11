@@ -24,7 +24,7 @@ from tradinga.settings import DATA_DIR, MIN_DATA_CHECKS, STOCK_DIR, SYMBOL_FILE
 # @profile
 class DataAnalyzer:
 
-    def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, symbol_file: str = SYMBOL_FILE, window: int = 100) -> None:
+    def __init__(self, analyzer_name:str = 'generic_analyzer', data_dir: str = DATA_DIR, stock_dir: str = STOCK_DIR, symbol_file: str = SYMBOL_FILE, window: int = 5) -> None:
         # Settings
         self.analyzer_name = analyzer_name
         self.data_dir = data_dir
@@ -368,7 +368,7 @@ class DataAnalyzer:
         plot_data['predicted'] = predicted
         queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
 
-        while i < symbol_count and i < len(shuffled_list):
+        while i < symbol_count + 1 and i < len(shuffled_list):
             if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except or shuffled_list[i] in settings.EXCLUDE:
                 # print(f'Skipping symbol {shuffled_list[i]}. Symbol in except list')
                 symbol_count += 1
@@ -498,13 +498,13 @@ class DataAnalyzer:
             #     print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
             #     self.model_highest_loss = fast_eval * 100
             # ALTERNATIVE
-            required_precision_coef = 0.67
-            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 10: # 10 for trying to get overall market strategy
+            required_precision_coef = 0.6
+            if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 0: # 10 for trying to get overall market strategy
                 print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Lowest allowed precision updated: {self.model_lowest_precision} -> {precision * required_precision_coef}{bcolors.ENDC}")
                 self.model_lowest_precision = precision * required_precision_coef
 
             # Statistics
-            self.precision_values.append(new_precision)
+            self.precision_values.append(precision)
             data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
             scaled = self.ai_manager.scale_for_ai(data=data)
             val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
