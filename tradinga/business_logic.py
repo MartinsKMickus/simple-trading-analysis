@@ -24,7 +24,7 @@ class BusinessLogic:
     current_date = datetime.datetime.now()
     def __init__(self) -> None:
         # 6.5 hours a day market is open.
-        self.data_analyzer = DataAnalyzer(window=3)
+        self.data_analyzer = DataAnalyzer(window=settings.DATA_WINDOW)
         self.data_analyzer.ai_manager.load_model()
 
     def get_predicted_change(self, symbol: str, last_date: datetime.datetime, risk_calculation: bool = False) -> tuple[datetime.date, tuple[float, float, float, float, float, float, float, float, float, float]]:
@@ -226,8 +226,8 @@ class BusinessLogic:
         """
         # #33
         
-        if self.data_analyzer.ai_manager.diversity_threshold >= settings.MIN_REQUIRED_PROFIT:
-            print(f'{bcolors.FAIL}Configured lowest profit {settings.MIN_REQUIRED_PROFIT} is lower than possible result diversity {self.data_analyzer.ai_manager.diversity_threshold}{bcolors.ENDC}')
+        if self.data_analyzer.ai_manager.diversity_threshold >= settings.MIN_REQUIRED_PROFIT * 2:
+            print(f'{bcolors.FAIL}Configured lowest profit {settings.MIN_REQUIRED_PROFIT} is lower than possible result diversity on one side {self.data_analyzer.ai_manager.diversity_threshold * 2}{bcolors.ENDC}')
             return
         loaded_data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval)
         scaled_data = self.data_analyzer.ai_manager.scale_for_ai(loaded_data)
@@ -378,11 +378,13 @@ class BusinessLogic:
             last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
         
         fig, (ax1, ax2) = plt.subplots(2, 1)
-        
+        fig.subplots_adjust(hspace=0.4)
         ax1.hist(win_confidence_histogram, bins=50, label='Changes that won')
         ax1.hist(loss_confidence_histogram, bins=50, label='Changes that lost')
         ax2.hist(win_change_histogram, bins=50, label='Changes that won')
         ax2.hist(loss_change_histogram, bins=50, label='Changes that lost')
+        ax1.title.set_text('Confidence')
+        ax2.title.set_text('Predicted change')
         # plt.plot(test_list_pred, label='Predicted')
         # plt.plot(test_list_real, label='Actual')
         plt.legend()
