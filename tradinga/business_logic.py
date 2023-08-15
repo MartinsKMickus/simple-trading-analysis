@@ -275,19 +275,27 @@ class BusinessLogic:
                 # print(f'Predicted profit: {abs(round(results[4]*100, 2))}%')
                 last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
                 continue
-            # Dynamic predicted change based on confidence and diversity:
-            if predicted_change < 0:
-                predicted_change += self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
-            else:
-                predicted_change -= self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
+            # Dynamic predicted change based on confidence and diversity: WRONG IMPLEMENTATION
+            # if predicted_change < 0:
+            #     predicted_change += self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
+            # else:
+            #     predicted_change -= self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
             
             # Exceeding risk change means wrong prediction
             risk_change = -predicted_change/settings.REWARD_RISK_RATIO
             # If predictions predicted exceeded risk, then we will not continue
             skip = False
+            other_side = False
             for checkup in range(1, self.data_analyzer.ai_manager.predict_after_time + 1):
                 next_change = (predictions[i + checkup]-predictions[i-self.data_analyzer.ai_manager.predict_after_time - 1])/predictions[i-self.data_analyzer.ai_manager.predict_after_time - 1]
-                if risk_change < 0 and next_change < risk_change or risk_change > 0 and next_change > risk_change:
+                # If predictions exceeds risk (Removed and replaced with method below since model ID X4/41)
+                # if risk_change < 0 and next_change < risk_change or risk_change > 0 and next_change > risk_change:
+                #     last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
+                #     # print(f"With confidence {round(current_confidence, 2)}% risk was exceeded")
+                #     skip = True
+                #     break
+                # If predictions goes to other side (loss)
+                if risk_change < 0 and next_change < 0 or risk_change > 0 and next_change > 0:
                     last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
                     # print(f"With confidence {round(current_confidence, 2)}% risk was exceeded")
                     skip = True
@@ -379,10 +387,13 @@ class BusinessLogic:
         
         fig, (ax1, ax2) = plt.subplots(2, 1)
         fig.subplots_adjust(hspace=0.4)
-        ax1.hist(win_confidence_histogram, bins=50, label='Changes that won')
-        ax1.hist(loss_confidence_histogram, bins=50, label='Changes that lost')
-        ax2.hist(win_change_histogram, bins=50, label='Changes that won')
-        ax2.hist(loss_change_histogram, bins=50, label='Changes that lost')
+        # Determine the common data range for both sets
+        confidence_range = (min(min(win_confidence_histogram), min(loss_confidence_histogram)), max(max(win_confidence_histogram), max(loss_confidence_histogram)))
+        change_range = (min(min(win_change_histogram), min(loss_change_histogram)), max(max(win_change_histogram), max(loss_change_histogram)))
+        ax1.hist(win_confidence_histogram, bins=50, range=confidence_range, label='Changes that won', density=True, alpha=0.7)
+        ax1.hist(loss_confidence_histogram, bins=50, range=confidence_range, label='Changes that lost', density=True, alpha=0.7)
+        ax2.hist(win_change_histogram, bins=50, range=change_range, label='Changes that won', density=True, alpha=0.7)
+        ax2.hist(loss_change_histogram, bins=50, range=change_range, label='Changes that lost', density=True, alpha=0.7)
         ax1.title.set_text('Confidence')
         ax2.title.set_text('Predicted change')
         # plt.plot(test_list_pred, label='Predicted')
