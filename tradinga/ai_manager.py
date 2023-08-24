@@ -156,10 +156,27 @@ class AIManager:
                 values[i - self.window : i]
             )
             y_array.append(values[i + self.predict_after_time, self.desired_column_index])  # To predict 'close' value
-            # if values[i + self.predict_after_time, self.desired_column_index] > values[i - 1, self.desired_column_index]:
-            #     y_array.append(1)
+
+            # R/R inclusive method:
+            # first_value = values[i - 1, self.desired_column_index]
+            # last_value = values[i + self.predict_after_time, self.desired_column_index]
+            # max_change = 0
+            # risk_exceeded = False
+            # if first_value != 0:
+            #     last_precentage = (last_value - first_value) / first_value
+            #     risk_percentage = last_precentage / -settings.REWARD_RISK_RATIO
+            #     for value in values[i:i+self.predict_after_time, self.desired_column_index]:
+            #         current_percentage = (value - first_value) / first_value
+            #         if risk_percentage < 0 and risk_percentage > current_percentage and max_change > current_percentage:
+            #             risk_exceeded = True
+            #             max_change = current_percentage
+            #         elif risk_percentage > 0 and risk_percentage < current_percentage and max_change < current_percentage:
+            #             risk_exceeded = True
+            #             max_change = current_percentage
+            # if risk_exceeded:
+            #     y_array.append(first_value)
             # else:
-            #     y_array.append(0)
+            #     y_array.append(last_value)
 
         x_array, y_array = np.array(x_array), np.array(y_array)
 

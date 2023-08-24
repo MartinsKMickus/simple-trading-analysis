@@ -285,7 +285,6 @@ class BusinessLogic:
             risk_change = -predicted_change/settings.REWARD_RISK_RATIO
             # If predictions predicted exceeded risk, then we will not continue
             skip = False
-            other_side = False
             for checkup in range(1, self.data_analyzer.ai_manager.predict_after_time + 1):
                 next_change = (predictions[i + checkup]-predictions[i-self.data_analyzer.ai_manager.predict_after_time - 1])/predictions[i-self.data_analyzer.ai_manager.predict_after_time - 1]
                 # If predictions exceeds risk (Removed and replaced with method below since model ID X4/41)
@@ -313,14 +312,33 @@ class BusinessLogic:
             # real_data[window -> i-th] predicts real_data[i-th + predict_after_time]. + 1 because range stop is not included
             # Example: At i=0 prediction is for real_data[i:window], window is NOT INCLUDED so checkup starts at window + predict_after_time
             future_exceeded = 0
-            # Need to start not from next candle but from one after because of possible price fluctuation
-            for real_data in range(self.data_analyzer.window + i + 1, len(predictions) + self.data_analyzer.window): # self.data_analyzer.window + i + self.data_analyzer.ai_manager.predict_after_time
+            wait_to_buy = settings.WAIT_FOR_ENTRY
+            entry_price = loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
+            entry_price += entry_price * risk_change * settings.BETTER_ENTRY
+            # WRONG ASSUMPTION -> Need to start not from next candle but from one after because of possible price fluctuation <- WRONG ASSUMPTION
+            for real_data in range(self.data_analyzer.window + i, len(predictions) + self.data_analyzer.window): # self.data_analyzer.window + i + self.data_analyzer.ai_manager.predict_after_time
                 # test_list_pred.append(predictions[i])
                 # test_list_real.append(loaded_data.iloc[real_data]['close'])
                 # Last value fed into model was window. - 1 because window value is already predicted
-                real_max_change = (loaded_data.iloc[real_data]['high']-loaded_data.iloc[self.data_analyzer.window + i - 1]['close'])/loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
-                real_min_change = (loaded_data.iloc[real_data]['low']-loaded_data.iloc[self.data_analyzer.window + i - 1]['close'])/loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
-
+                real_max = loaded_data.iloc[real_data]['high']
+                real_min = loaded_data.iloc[real_data]['low']
+                real_max_change = (real_max-entry_price)/entry_price
+                real_min_change = (real_min-entry_price)/entry_price
+                
+                # Need to get stock value reach entry price before enterint
+                if wait_to_buy > 0:
+                    if entry_price < real_max and entry_price > real_min:
+                        # Entry
+                        wait_to_buy = -1
+                    else:
+                        # Wait next time unit to enter
+                        wait_to_buy -= 1
+                        continue
+                elif wait_to_buy == 0:
+                    # No entry price was reached within period
+                    last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
+                    break
+                
                 if risk_change < 0 and real_min_change <= risk_change:
                     # print(f'Guess for {last_date} is wrong:')
                     # print(f'Confidence: {round(current_confidence*100, 2)}%')
@@ -353,6 +371,9 @@ class BusinessLogic:
                     # print(f'Prediction with confidence {round(current_confidence*100, 2)}% Pred. ch: {round(predicted_change*100, 2)}% exceeded TU: {future_exceeded}')
                     break
 
+            if wait_to_buy != -1:
+                continue
+
             if no_decision:
                 # If no extreme was reached then last value is considered profit or loss. - 1 because window value is already predicted
                 change = (loaded_data.iloc[self.data_analyzer.window + i + self.data_analyzer.ai_manager.predict_after_time]['close']-loaded_data.iloc[self.data_analyzer.window + i - 1]['close'])/loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
@@ -363,20 +384,27 @@ class BusinessLogic:
                     # print(f'Guess for {last_date} is wrong:')
                 else:
                     correct_guesses += 1
-            stock_val = loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
+            # stock_val = loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
             # print(f'At: {last_date}')
             # print(f'Stock val: {stock_val}')
-            qty_invested = int(settings.RISK_FROM_VALUE * balance / (stock_val * abs(risk_change)))
+            qty_invested = int(settings.ACCOUNT_RISK * balance / (entry_price * abs(risk_change)))
             # print(f'QTY: {qty_invested}')
             # print(f'Predicted: {predicted_change}')
             # print(f'Change: {change}')
-            value_invested = stock_val * qty_invested
+            value_invested = entry_price * qty_invested
             if value_invested > balance:
+                # Risked value shouldn't be exceeded
+                if change > 0:
+                    correct_guesses -= 1
+                else:
+                    wrong_guesses -= 1
+                last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
+                continue
                 qty_invested_new = floor(balance / stock_val)
                 # print(f'Adjusted quantity invested {qty_invested} -> {qty_invested_new} because it exceeded balance {round(balance, 2)} < {round(value_invested, 2)}')
                 # print(f'Balance used now: {stock_val * qty_invested_new}')
                 qty_invested = qty_invested_new
-            balance += stock_val * qty_invested * change
+            balance += entry_price * qty_invested * change
             if change < 0:
                 loss_confidence_histogram.append(current_confidence)
                 loss_change_histogram.append(predicted_change)
@@ -388,8 +416,14 @@ class BusinessLogic:
         fig, (ax1, ax2) = plt.subplots(2, 1)
         fig.subplots_adjust(hspace=0.4)
         # Determine the common data range for both sets
-        confidence_range = (min(min(win_confidence_histogram), min(loss_confidence_histogram)), max(max(win_confidence_histogram), max(loss_confidence_histogram)))
-        change_range = (min(min(win_change_histogram), min(loss_change_histogram)), max(max(win_change_histogram), max(loss_change_histogram)))
+        try:
+            confidence_range = (min(min(win_confidence_histogram), min(loss_confidence_histogram)), max(max(win_confidence_histogram), max(loss_confidence_histogram)))
+        except:
+            confidence_range = None
+        try:
+            change_range = (min(min(win_change_histogram), min(loss_change_histogram)), max(max(win_change_histogram), max(loss_change_histogram)))
+        except:
+            change_range = None
         ax1.hist(win_confidence_histogram, bins=50, range=confidence_range, label='Changes that won', density=True, alpha=0.7)
         ax1.hist(loss_confidence_histogram, bins=50, range=confidence_range, label='Changes that lost', density=True, alpha=0.7)
         ax2.hist(win_change_histogram, bins=50, range=change_range, label='Changes that won', density=True, alpha=0.7)
