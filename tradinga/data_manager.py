@@ -165,7 +165,7 @@ class DataManager:
         except:
             data.to_csv(file_name, index=False)
 
-    def get_symbol_data(self, symbol: str, interval: str, online=False, additional_data: bool = True):
+    def get_symbol_data(self, symbol: str, interval: str, online=False, additional_data: bool = True, do_drop: bool = True):
         """
         Gets symbol data.
         If file not available locally, then it will be downloaded.
@@ -191,8 +191,9 @@ class DataManager:
         data = data.reset_index(drop=True)
         data["time"] = pd.to_datetime(data["time"], format="ISO8601")
 
-        for to_drop in self.columns_to_drop:
-            data = data.drop(to_drop, axis=1)
+        if do_drop:
+            for to_drop in self.columns_to_drop:
+                data = data.drop(to_drop, axis=1)
 
         if self.use_rsi:
             self.apply_rsi(data=data)

@@ -7,7 +7,8 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from tradinga import settings
 
-from tradinga.custom_loss import direction_loss
+from tradinga.custom_loss import IntervalAccuracy, direction_loss
+from tradinga.tools import bcolors
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import absl.logging
 absl.logging.set_verbosity(absl.logging.ERROR)
@@ -27,14 +28,14 @@ class AIManager:
     window = 5 # DO NOT CHANGE!!!
     one_hot_encoding_count = 0
     batch_size = 64
-    epochs = 8
+    epochs = settings.SINGLE_DATA_EPOCHS
     use_earlystop = False
     earlystop_patience = 50
     scaler = MinMaxScaler()
     custom_scaler = False
     model = None
     # After how much time units make prediction in future
-    predict_after_time = 10 #round(10/(3/5)) #10 # 7 hours in one working day.
+    predict_after_time = settings.PREDICT_AFTER #round(10/(3/5)) #10 # 7 hours in one working day.
 
     # Metrics
     direction_metric = True
@@ -42,13 +43,13 @@ class AIManager:
 
     # Monte Carlo model confidence (variance in percentage).
     monte_carlo_samples = 100
-    diversity_threshold = 0.01 # This is how much toward last value take profit has to be moved
-    use_std = True
-    batch_memory = 512
+    diversity_threshold = settings.DIVERSITY_THRESHOLD # This is how much toward last value take profit has to be moved
+    use_std = True # 
+    batch_memory = 1024
 
     # Required model confidence to base metric score on. Model could be wrong in most cases but with low confidence.
     # We'll assume model should get better with confidence scores over 50%
-    required_confidence = 0.4
+    required_confidence = settings.MIN_CONFIDENCE
 
     def __init__(self, data_dir: str = DATA_DIR, model_name: str = '', one_hot_encoding_count: int = 0, data_min = None, data_max = None, window: int = 5) -> None:
         self.window = window
@@ -155,10 +156,27 @@ class AIManager:
                 values[i - self.window : i]
             )
             y_array.append(values[i + self.predict_after_time, self.desired_column_index])  # To predict 'close' value
-            # if values[i + self.predict_after_time, self.desired_column_index] > values[i - 1, self.desired_column_index]:
-            #     y_array.append(1)
+
+            # R/R inclusive method:
+            # first_value = values[i - 1, self.desired_column_index]
+            # last_value = values[i + self.predict_after_time, self.desired_column_index]
+            # max_change = 0
+            # risk_exceeded = False
+            # if first_value != 0:
+            #     last_precentage = (last_value - first_value) / first_value
+            #     risk_percentage = last_precentage / -settings.REWARD_RISK_RATIO
+            #     for value in values[i:i+self.predict_after_time, self.desired_column_index]:
+            #         current_percentage = (value - first_value) / first_value
+            #         if risk_percentage < 0 and risk_percentage > current_percentage and max_change > current_percentage:
+            #             risk_exceeded = True
+            #             max_change = current_percentage
+            #         elif risk_percentage > 0 and risk_percentage < current_percentage and max_change < current_percentage:
+            #             risk_exceeded = True
+            #             max_change = current_percentage
+            # if risk_exceeded:
+            #     y_array.append(first_value)
             # else:
-            #     y_array.append(0)
+            #     y_array.append(last_value)
 
         x_array, y_array = np.array(x_array), np.array(y_array)
 
@@ -197,17 +215,27 @@ class AIManager:
         """
         print(f'Model input shape: {i_shape}')
         model = tf.keras.models.Sequential()
-        model.add(tf.keras.layers.LSTM(units=8, return_sequences=True, input_shape=i_shape)) # It is important to capture order rather than values at first
-        model.add(tf.keras.layers.Dense(16, input_shape=i_shape)) # Dense layer provides individual value importance after LSTM
-        model.add(tf.keras.layers.Dropout(0.01))
-        model.add(tf.keras.layers.LSTM(units=4))
-        model.add(tf.keras.layers.Dense(4))
+        # model.add(tf.keras.layers.LSTM(units=16, return_sequences=True, input_shape=i_shape)) # It is important to capture order rather than values at first
+        model.add(tf.keras.layers.Dense(512, activation='elu', input_shape=i_shape)) # Dense layer provides individual value importance after LSTM
+        model.add(tf.keras.layers.Dense(512, activation='elu'))
+        model.add(tf.keras.layers.Dense(512, activation='elu'))
+        model.add(tf.keras.layers.Dense(512, activation='elu'))
+        # model.add(tf.keras.layers.Dropout(0.1))
+        # model.add(tf.keras.layers.Dense(64, activation='elu', kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+        # model.add(tf.keras.layers.Dense(16))
+        
+        # model.add(tf.keras.layers.LSTM(units=8))
+        # model.add(tf.keras.layers.Dense(8))
+        # model.add(tf.keras.layers.Dropout(0.01))
+        # model.add(tf.keras.layers.LSTM(units=4))
+        # model.add(tf.keras.layers.Dense(4))
         # model.add(tf.keras.layers.Reshape((1, 300)))
-        # model.add(tf.keras.layers.GlobalAveragePooling1D())
+        model.add(tf.keras.layers.GlobalAveragePooling1D())
+        # model.add(tf.keras.layers.Dense(8))
         model.add(tf.keras.layers.Dense(units=output)) # , activation='sigmoid'
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001) # RMSprop, Adagrad, SGD, Adam
-        model.compile(optimizer=edited_optimizer, loss=direction_loss, metrics=["mean_squared_error", "mae"])
+        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.001) # RMSprop, Adagrad, SGD, Adam
+        model.compile(optimizer=edited_optimizer, loss="mae", metrics=["mean_squared_error", direction_loss, IntervalAccuracy()])
         model.summary()
         return model
     
@@ -276,7 +304,7 @@ class AIManager:
 
         """
         if os.path.exists(self.ai_location):
-            with custom_object_scope({'direction_loss': direction_loss}):
+            with custom_object_scope({'direction_loss': direction_loss, 'IntervalAccuracy': IntervalAccuracy}):
                 self.model = tf.keras.models.load_model(self.ai_location)
 
     def save_model(self):
@@ -482,7 +510,7 @@ class AIManager:
             predictions = np.zeros((self.monte_carlo_samples, len(values)))
 
             # tf.keras.backend.set_learning_phase(1)
-            for i in tqdm.tqdm(range(self.monte_carlo_samples), delay=8, desc='Monte Carlo dropout calculations'):
+            for i in tqdm.tqdm(range(self.monte_carlo_samples), delay=10, desc='Monte Carlo dropout calculations'):
                 for batch_pred in range(0, len(values), self.batch_memory):
                     if batch_pred + self.batch_memory > len(values):
                         max_border = len(values)
@@ -496,17 +524,17 @@ class AIManager:
             std_predictions = np.std(predictions, axis=0)
             confidence_scores = []
             # Implementation of #31 had no correct assumption. Code is cleaned up instead.
-            for std_prediction in std_predictions:
-                if std_prediction == 0:
+            for i in range(len(std_predictions)):
+                if std_predictions[i] == 0:
                     confidence = 1.0  # All predicted values are the same
                     # print(f'{bcolors.BOLD}{bcolors.OKGREEN}IMPOSSIBLE HAS HAPPENED!!! CONFIDENCE 100%{bcolors.ENDC}')
-                elif std_prediction >= self.diversity_threshold:
+                elif std_predictions[i] >= self.diversity_threshold:
                     confidence = 0.0  # Diversity exceeds or equals the threshold
                 else:
-                    diversity = np.max(predictions) - np.min(predictions)
                     if self.use_std:
-                        confidence = max(1.0 - float(std_prediction / self.diversity_threshold), 0.0)
+                        confidence = max(1.0 - float(std_predictions[i] / self.diversity_threshold), 0.0)
                     else:
+                        diversity = np.max(predictions[:,i]) - np.min(predictions[:,i])
                         confidence = max(1.0 - float(diversity / self.diversity_threshold), 0.0)
                 confidence_scores.append(confidence)
                 
@@ -533,7 +561,11 @@ class AIManager:
 
         """
         correct_direction_count = 0
-        predictions, confidences = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=True)
+        if settings.USE_MONTE_CARLO:
+            predictions, confidences = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=True)
+        else:
+            predictions = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=False)
+            confidences = np.ones((len(predictions)))
         predictions = self.scale_back_value(predictions)
         # We need to check exact values of passing confidences to calculate average.
         # If all predictions was right then confidence should be also 100% but if it is not then metric cannot exceed average of these confidences (to make model provide correct confidence)
@@ -584,3 +616,25 @@ class AIManager:
             accuracy = conf_average
 
         return [accuracy]
+    
+    def get_learning_setting_summary(self):
+        """
+        Prints learning setting summary.
+        """
+        if not isinstance(self.model, tf.keras.Model):
+            print("Learning setting summary called but model does not exist!")
+            return
+        print(f'{bcolors.BOLD}Model Learning Setting Summary:{bcolors.ENDC}')
+        print(f'Input Window: {self.window}')
+        print(f'Predict after: {self.predict_after_time + 1}')
+        print(f'Single Data Epochs: {self.epochs}')
+        print(f'Accuracy Cutoff: {settings.ACCURACY_CUTOFF}')
+        print(f'Model Loss Function: {self.model.loss}')
+        print(f'Model Learning Rate: {self.model.optimizer.learning_rate.numpy()}')
+        print(f'Min Confidence: {settings.MIN_CONFIDENCE}')
+        print(f'Diversity Threshold: {settings.DIVERSITY_THRESHOLD}')
+        try:
+            input("Press Enter to continue!\n")
+        except KeyboardInterrupt:
+            print("Ctrl+C detected. Stopping the program...")
+            sys.exit(0)

@@ -19,14 +19,32 @@ def direction_loss(y_true, y_pred):
     # Apply additional penalties for special occasions
     loss = tf.where(
         tf.logical_and(tf.greater(y_true, prev_true), tf.less(y_pred, prev_true)),
-        10 * loss,  # Increase the loss for the special occasion
+        1000 * loss,  # Increase the loss for the special occasion
         loss
     )
     
     loss = tf.where(
         tf.logical_and(tf.less(y_true, prev_true), tf.greater(y_pred, prev_true)),
-        10 * loss,  # Increase the loss for the special occasion
+        1000 * loss,  # Increase the loss for the special occasion
         loss
     )
     
     return loss
+
+class IntervalAccuracy(tf.keras.metrics.Accuracy):
+    def __init__(self, interval=0.03, name='interval_accuracy', dtype=None):
+        super(IntervalAccuracy, self).__init__(name=name, dtype=dtype)
+        self.interval = interval
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+
+        # Compute the absolute difference between y_pred and y_true
+        abs_diff = tf.abs(y_pred - y_true)
+
+        # Determine if the absolute difference is within the specified interval
+        within_interval = tf.less_equal(abs_diff, self.interval)
+
+        # Compute the accuracy based on whether the predictions are within the interval
+        acc = tf.cast(within_interval, self._dtype)
+
+        super(IntervalAccuracy, self).update_state(y_true, acc, sample_weight)

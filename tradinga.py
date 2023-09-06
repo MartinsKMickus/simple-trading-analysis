@@ -22,6 +22,8 @@ ap_metrics.add_argument('-s', '--symbol', dest="symbol", metavar="SYMBOL", requi
 ap_metrics.add_argument('-p', '--plot',  dest="p", action='store_true',
                        help='Plot prediction chart on real data')
 
+ap_model_metrics = action_parser.add_parser('model_metrics', help='Get metrics for model on test symbols')
+
 ap_predict = action_parser.add_parser('predict', help='Predict symbol future')
 ap_predict.add_argument('-s', '--symbol', dest="symbol", metavar="SYMBOL", required=True,
                    help='Symbol')
@@ -49,6 +51,8 @@ elif args.action == 'metrics':
     business_logic.strategy_tester(symbol=args.symbol)
     if args.p:
         business_logic.show_prediction_chart(symbol=args.symbol)
+elif args.action == 'model_metrics':
+    business_logic.model_performance_summary()
 elif args.action == 'predict':
     if args.last_date:
         business_logic.predict_next_close(symbol=args.symbol, last_date=datetime.datetime.strptime(args.last_date, '%Y/%m/%d'))
