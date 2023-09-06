@@ -332,7 +332,8 @@ class DataAnalyzer:
             else:
                 self.ai_manager.create_model((self.window, self.data_manager.get_feature_count()))
             self.ai_manager.save_model()
-
+        self.ai_manager.get_learning_setting_summary()
+        
         shuffled_list = self.data_manager.symbols.copy()
         random.shuffle(shuffled_list)
         if not isinstance(symbol_count, int):
@@ -355,18 +356,20 @@ class DataAnalyzer:
         one_hot_test = None
 
         # Statistics
+        statistic_symbol = 'CVNA'
+        self.all_values = []
         self.precision_values = []
         queue = Queue()
         plot_process = Process(target=self.update_plot, args=(queue,))
         plot_process.start()
-        data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
+        data = self.data_manager.get_symbol_data(symbol=statistic_symbol, interval=self.interval)
         scaled = self.ai_manager.scale_for_ai(data=data)
-        val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
+        val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol=statistic_symbol)[0]
         predicted = self.ai_manager.scale_back_value(self.ai_manager.predict_all_values(values=scaled))
         plot_data = data[['time', 'close']].copy()
         plot_data = plot_data.iloc[self.window:]
         plot_data['predicted'] = predicted
-        queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
+        queue.put((self.precision_values, statistic_symbol, val_metric, plot_data))
 
         while i < symbol_count + 1 and i < len(shuffled_list):
             if shuffled_list[i] in self.except_symbols or shuffled_list[i] in self.model_except or shuffled_list[i] in settings.EXCLUDE:
@@ -498,21 +501,27 @@ class DataAnalyzer:
             #     print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Highest allowed loss updated: {self.model_highest_loss} -> {fast_eval * 100}{bcolors.ENDC}")
             #     self.model_highest_loss = fast_eval * 100
             # ALTERNATIVE
-            required_precision_coef = 0.6
+            required_precision_coef = settings.ACCURACY_CUTOFF
             if self.model_lowest_precision < precision * required_precision_coef and self.fit_times > 0: # 10 for trying to get overall market strategy
                 print(f"{bcolors.CBLINK}{bcolors.OKCYAN}Lowest allowed precision updated: {self.model_lowest_precision} -> {precision * required_precision_coef}{bcolors.ENDC}")
                 self.model_lowest_precision = precision * required_precision_coef
 
             # Statistics
-            self.precision_values.append(precision)
-            data = self.data_manager.get_symbol_data(symbol='AAPL', interval=self.interval)
+            # Running 5 point avg
+            self.all_values.append(precision)
+            if len(self.all_values) < settings.RUNNING_AVG:
+                running_avg = sum(self.all_values)/len(self.all_values)
+            else:
+                running_avg = sum(self.all_values[-settings.RUNNING_AVG:])/settings.RUNNING_AVG
+            self.precision_values.append(running_avg)
+            data = self.data_manager.get_symbol_data(symbol=statistic_symbol, interval=self.interval)
             scaled = self.ai_manager.scale_for_ai(data=data)
-            val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol='AAPL')[0]
+            val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol=statistic_symbol)[0]
             predicted = self.ai_manager.scale_back_value(self.ai_manager.predict_all_values(values=scaled))
             plot_data = data[['time', 'close']].copy()
             plot_data = plot_data.iloc[self.window:]
             plot_data['predicted'] = predicted
-            queue.put((self.precision_values, 'AAPL', val_metric, plot_data))
+            queue.put((self.precision_values, statistic_symbol, val_metric, plot_data))
 
             # Status
             if symbol_count > len(shuffled_list):

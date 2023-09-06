@@ -8,6 +8,7 @@ import os
 import random
 
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 import tqdm
 from tradinga import settings
@@ -24,7 +25,7 @@ class BusinessLogic:
     current_date = datetime.datetime.now()
     def __init__(self) -> None:
         # 6.5 hours a day market is open.
-        self.data_analyzer = DataAnalyzer(window=3)
+        self.data_analyzer = DataAnalyzer(window=settings.DATA_WINDOW)
         self.data_analyzer.ai_manager.load_model()
 
     def get_predicted_change(self, symbol: str, last_date: datetime.datetime, risk_calculation: bool = False) -> tuple[datetime.date, tuple[float, float, float, float, float, float, float, float, float, float]]:
@@ -213,7 +214,7 @@ class BusinessLogic:
             market_results.to_csv(f'{settings.DATA_DIR}/predictions/Predictions_{self.data_analyzer.interval}_{last_date.date()}_future{self.data_analyzer.ai_manager.predict_after_time + 1}.csv', index=False)
             i += 1
 
-    def strategy_tester(self, symbol: str):
+    def strategy_tester(self, symbol: str, graphs: bool = True, info: bool = True):
         """
         Gets model predictions for stock market and saves data in file.
 
@@ -223,15 +224,22 @@ class BusinessLogic:
         real value based prediction (prediction calculated by looking at previous real value) percentage/price;
         Args:
             last_date (datetime.datetime): Date to start prediction from.
+        Returns:
+            (winrate, balance) or None
         """
         # #33
         
-        if self.data_analyzer.ai_manager.diversity_threshold >= settings.MIN_REQUIRED_PROFIT:
-            print(f'{bcolors.FAIL}Configured lowest profit {settings.MIN_REQUIRED_PROFIT} is lower than possible result diversity {self.data_analyzer.ai_manager.diversity_threshold}{bcolors.ENDC}')
+        if self.data_analyzer.ai_manager.diversity_threshold >= settings.MIN_REQUIRED_PROFIT * 2:
+            print(f'{bcolors.FAIL}Configured lowest profit {settings.MIN_REQUIRED_PROFIT} is lower than possible result diversity on one side {self.data_analyzer.ai_manager.diversity_threshold * 2}{bcolors.ENDC}')
             return
         loaded_data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval)
         scaled_data = self.data_analyzer.ai_manager.scale_for_ai(loaded_data)
-        predictions, confidences = self.data_analyzer.ai_manager.predict_all_values(values=scaled_data, monte_carlo=True)
+        loaded_data = self.data_analyzer.data_manager.get_symbol_data(symbol=symbol, interval=self.data_analyzer.interval, do_drop=False)
+        if settings.USE_MONTE_CARLO:
+            predictions, confidences = self.data_analyzer.ai_manager.predict_all_values(values=scaled_data, monte_carlo=True)
+        else:
+            predictions = self.data_analyzer.ai_manager.predict_all_values(values=scaled_data, monte_carlo=False)
+            confidences = np.ones((len(predictions)))
         predictions = self.data_analyzer.ai_manager.scale_back_value(predictions)
         # plot_data = loaded_data.iloc[self.data_analyzer.window:]
         # plot_data['predicted'] = predictions
@@ -245,6 +253,8 @@ class BusinessLogic:
         balance = settings.START_BALANCE
         correct_guesses = 0
         wrong_guesses = 0
+        sequence = []
+        balance_history = [balance]
         win_change_histogram = []
         loss_change_histogram = []
         win_confidence_histogram = []
@@ -254,7 +264,7 @@ class BusinessLogic:
         # test_list_real = []
         # test_list_pred = []
         # Start with 1 because to check model bias
-        for i in tqdm.tqdm(range(self.data_analyzer.ai_manager.predict_after_time + 1, len(predictions) - self.data_analyzer.ai_manager.predict_after_time)):
+        for i in tqdm.tqdm(range(self.data_analyzer.ai_manager.predict_after_time + 1, len(predictions) - self.data_analyzer.ai_manager.predict_after_time), delay=5):
             # Need to check which dates are actually available for data
             if settings.FIRST_DAY_HOUR and last_date == loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]:
                 continue
@@ -275,11 +285,11 @@ class BusinessLogic:
                 # print(f'Predicted profit: {abs(round(results[4]*100, 2))}%')
                 last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
                 continue
-            # Dynamic predicted change based on confidence and diversity:
-            if predicted_change < 0:
-                predicted_change += self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
-            else:
-                predicted_change -= self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
+            # Dynamic predicted change based on confidence and diversity: WRONG IMPLEMENTATION
+            # if predicted_change < 0:
+            #     predicted_change += self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
+            # else:
+            #     predicted_change -= self.data_analyzer.ai_manager.diversity_threshold * (1 - current_confidence) * 0.5
             
             # Exceeding risk change means wrong prediction
             risk_change = -predicted_change/settings.REWARD_RISK_RATIO
@@ -287,7 +297,14 @@ class BusinessLogic:
             skip = False
             for checkup in range(1, self.data_analyzer.ai_manager.predict_after_time + 1):
                 next_change = (predictions[i + checkup]-predictions[i-self.data_analyzer.ai_manager.predict_after_time - 1])/predictions[i-self.data_analyzer.ai_manager.predict_after_time - 1]
-                if risk_change < 0 and next_change < risk_change or risk_change > 0 and next_change > risk_change:
+                # If predictions exceeds risk (Removed and replaced with method below since model ID X4/41)
+                # if risk_change < 0 and next_change < risk_change or risk_change > 0 and next_change > risk_change:
+                #     last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
+                #     # print(f"With confidence {round(current_confidence, 2)}% risk was exceeded")
+                #     skip = True
+                #     break
+                # If predictions goes to other side (loss)
+                if risk_change < 0 and next_change < 0 or risk_change > 0 and next_change > 0:
                     last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
                     # print(f"With confidence {round(current_confidence, 2)}% risk was exceeded")
                     skip = True
@@ -305,19 +322,37 @@ class BusinessLogic:
             # real_data[window -> i-th] predicts real_data[i-th + predict_after_time]. + 1 because range stop is not included
             # Example: At i=0 prediction is for real_data[i:window], window is NOT INCLUDED so checkup starts at window + predict_after_time
             future_exceeded = 0
-            # Need to start not from next candle but from one after because of possible price fluctuation
-            for real_data in range(self.data_analyzer.window + i + 1, len(predictions) + self.data_analyzer.window): # self.data_analyzer.window + i + self.data_analyzer.ai_manager.predict_after_time
+            wait_to_buy = settings.WAIT_FOR_ENTRY
+            entry_price = loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
+            entry_price += entry_price * risk_change * settings.BETTER_ENTRY
+            # WRONG ASSUMPTION -> Need to start not from next candle but from one after because of possible price fluctuation <- WRONG ASSUMPTION
+            for real_data in range(self.data_analyzer.window + i, len(predictions) + self.data_analyzer.window): # self.data_analyzer.window + i + self.data_analyzer.ai_manager.predict_after_time
                 # test_list_pred.append(predictions[i])
                 # test_list_real.append(loaded_data.iloc[real_data]['close'])
                 # Last value fed into model was window. - 1 because window value is already predicted
-                real_max_change = (loaded_data.iloc[real_data]['high']-loaded_data.iloc[self.data_analyzer.window + i - 1]['close'])/loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
-                real_min_change = (loaded_data.iloc[real_data]['low']-loaded_data.iloc[self.data_analyzer.window + i - 1]['close'])/loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
-
+                real_max = loaded_data.iloc[real_data]['high']
+                real_min = loaded_data.iloc[real_data]['low']
+                real_max_change = (real_max-entry_price)/entry_price
+                real_min_change = (real_min-entry_price)/entry_price
+                
+                # Need to get stock value reach entry price before enterint
+                if wait_to_buy > 0:
+                    if entry_price < real_max and entry_price > real_min:
+                        # Entry
+                        wait_to_buy = -1
+                    else:
+                        # Wait next time unit to enter
+                        wait_to_buy -= 1
+                        continue
+                elif wait_to_buy == 0:
+                    # No entry price was reached within period
+                    last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
+                    break
+                
                 if risk_change < 0 and real_min_change <= risk_change:
                     # print(f'Guess for {last_date} is wrong:')
                     # print(f'Confidence: {round(current_confidence*100, 2)}%')
                     # print(f'Predicted change: {round(predicted_change*100, 2)}% but risk {round(risk_change*100, 2)}% was exceeded {round(real_min_change*100, 2)}%')
-                    wrong_guesses += 1
                     change = risk_change
                     no_decision = False
                     break
@@ -325,50 +360,59 @@ class BusinessLogic:
                     # print(f'Guess for {last_date} is wrong:')
                     # print(f'Confidence: {round(current_confidence*100, 2)}%')
                     # print(f'Predicted change: {round(predicted_change*100, 2)}% but risk {round(risk_change*100, 2)}% was exceeded {round(real_max_change*100, 2)}%')
-                    wrong_guesses += 1
                     change = -risk_change
                     no_decision = False
                     break
 
                 if predicted_change < 0 and real_min_change <= predicted_change:
-                    correct_guesses += 1
                     change = -predicted_change
                     no_decision = False
                     break
                 elif predicted_change > 0 and real_max_change >= predicted_change:
-                    correct_guesses += 1
                     change = predicted_change
                     no_decision = False
                     break
                 future_exceeded += 1
-                if future_exceeded > self.data_analyzer.ai_manager.predict_after_time + 1:
-                    # print(f'Prediction with confidence {round(current_confidence*100, 2)}% Pred. ch: {round(predicted_change*100, 2)}% exceeded TU: {future_exceeded}')
-                    break
+                # if future_exceeded > self.data_analyzer.ai_manager.predict_after_time + 1 + settings.TIME_UNITS_WAIT:
+                #     # print(f'Prediction with confidence {round(current_confidence*100, 2)}% Pred. ch: {round(predicted_change*100, 2)}% exceeded TU: {future_exceeded}')
+                #     break
+
+            if wait_to_buy != -1:
+                continue
 
             if no_decision:
                 # If no extreme was reached then last value is considered profit or loss. - 1 because window value is already predicted
                 change = (loaded_data.iloc[self.data_analyzer.window + i + self.data_analyzer.ai_manager.predict_after_time]['close']-loaded_data.iloc[self.data_analyzer.window + i - 1]['close'])/loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
-                if risk_change > 0:
-                    change = -change
-                if change < 0:
-                    wrong_guesses += 1
-                    # print(f'Guess for {last_date} is wrong:')
-                else:
-                    correct_guesses += 1
-            stock_val = loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
+            if risk_change > 0:
+                change = -change
+            if change < 0:
+                wrong_guesses += 1
+                # print(f'Guess for {last_date} is wrong:')
+            else:
+                correct_guesses += 1
+            # stock_val = loaded_data.iloc[self.data_analyzer.window + i - 1]['close']
             # print(f'At: {last_date}')
             # print(f'Stock val: {stock_val}')
-            qty_invested = int(settings.RISK_FROM_VALUE * balance / (stock_val * abs(risk_change)))
+            risk = round(settings.ACCOUNT_RISK * balance / 5) * 5
+            qty_invested = int(risk / (entry_price * abs(risk_change)))
             # print(f'QTY: {qty_invested}')
             # print(f'Predicted: {predicted_change}')
             # print(f'Change: {change}')
-            value_invested = stock_val * qty_invested
+            value_invested = entry_price * qty_invested
             if value_invested > balance:
-                qty_invested_new = floor(balance / stock_val)
+                # Risked value shouldn't be exceeded
+                if change > 0:
+                    correct_guesses -= 1
+                else:
+                    wrong_guesses -= 1
+                last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
+                continue
+                qty_invested_new = floor(balance / entry_price)
                 # print(f'Adjusted quantity invested {qty_invested} -> {qty_invested_new} because it exceeded balance {round(balance, 2)} < {round(value_invested, 2)}')
                 # print(f'Balance used now: {stock_val * qty_invested_new}')
                 qty_invested = qty_invested_new
-            balance += stock_val * qty_invested * change
+            balance += entry_price * qty_invested * change
+            balance_history.append(balance)
             if change < 0:
                 loss_confidence_histogram.append(current_confidence)
                 loss_change_histogram.append(predicted_change)
@@ -377,26 +421,68 @@ class BusinessLogic:
                 win_change_histogram.append(predicted_change)
             last_date = loaded_data['time'].dt.date.iloc[self.data_analyzer.window + i]
         
-        fig, (ax1, ax2) = plt.subplots(2, 1)
+        if graphs:
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+            fig.subplots_adjust(hspace=0.4)
+            # Determine the common data range for both sets
+            try:
+                confidence_range = (min(min(win_confidence_histogram), min(loss_confidence_histogram)), max(max(win_confidence_histogram), max(loss_confidence_histogram)))
+            except:
+                confidence_range = None
+            try:
+                change_range = (min(min(win_change_histogram), min(loss_change_histogram)), max(max(win_change_histogram), max(loss_change_histogram)))
+            except:
+                change_range = None
+            ax1.hist(win_confidence_histogram, bins=50, range=confidence_range, label='Changes that won', density=True, alpha=0.7)
+            ax1.hist(loss_confidence_histogram, bins=50, range=confidence_range, label='Changes that lost', density=True, alpha=0.7)
+            ax2.hist(win_change_histogram, bins=50, range=change_range, label='Changes that won', density=True, alpha=0.7)
+            ax2.hist(loss_change_histogram, bins=50, range=change_range, label='Changes that lost', density=True, alpha=0.7)
+            ax3.plot(balance_history)
+            ax1.title.set_text('Confidence')
+            ax2.title.set_text('Predicted change')
+            ax3.title.set_text('Balance History')
+            # plt.plot(test_list_pred, label='Predicted')
+            # plt.plot(test_list_real, label='Actual')
+            plt.legend()
+            plt.show()
         
-        ax1.hist(win_confidence_histogram, bins=50, label='Changes that won')
-        ax1.hist(loss_confidence_histogram, bins=50, label='Changes that lost')
-        ax2.hist(win_change_histogram, bins=50, label='Changes that won')
-        ax2.hist(loss_change_histogram, bins=50, label='Changes that lost')
-        # plt.plot(test_list_pred, label='Predicted')
-        # plt.plot(test_list_real, label='Actual')
-        plt.legend()
-        plt.show()
-        print(f'For symbol {symbol}:')
+        if info:
+            print(f'For symbol {symbol}:')
         if correct_guesses+wrong_guesses > 0:
-            print(f'Strategy was correct with accuracy {round(correct_guesses/(correct_guesses + wrong_guesses)*100,2)}%')
+            winrate = correct_guesses/(correct_guesses + wrong_guesses)
+            if info:
+                print(f'Strategy was correct with accuracy {round(winrate*100,2)}%')
         else:
-            print('No trades would be executed')
-        print(f'Correct guess count: {correct_guesses}')
-        print(f'Wrong guess count: {wrong_guesses}')
-        print(f'Using strategy balance change: {settings.START_BALANCE} -> ', end='')
-        if balance < settings.START_BALANCE:
-            print(bcolors.FAIL, end='')
-        else:
-            print(bcolors.OKGREEN, end='')
-        print(f'{round(balance, 2)}{bcolors.ENDC}')
+            if info:
+                print('No trades would be executed')
+            return ('-', settings.START_BALANCE)
+        if info:
+            print(f'Correct guess count: {correct_guesses}')
+            print(f'Wrong guess count: {wrong_guesses}')
+            print(f'Using strategy balance change: {settings.START_BALANCE} -> ', end='')
+            if balance < settings.START_BALANCE:
+                print(bcolors.FAIL, end='')
+            else:
+                print(bcolors.OKGREEN, end='')
+            print(f'{round(balance, 2)}{bcolors.ENDC}')
+        return (winrate, balance)
+
+    def model_performance_summary(self):
+        """
+        Gets model performance summary for specified stocks in settings file
+        """
+        results = {}
+        for symbol in tqdm.tqdm(settings.TEST_STOCKS):
+            # print(f'Analyzing {symbol}')
+            results[symbol] = self.strategy_tester(symbol=symbol, graphs=False, info=False)
+
+        print('Results:')
+        for key in results.keys():
+            print(key, end=' ')
+        print()
+        for result in results.values():
+            winrate = result[0]
+            if not isinstance(winrate, str):
+                winrate = round(winrate*100, 2)
+            print(f'{winrate}%,{round(result[1], 2)}€', end=',')
+        print()
