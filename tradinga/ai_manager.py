@@ -234,7 +234,7 @@ class AIManager:
         # model.add(tf.keras.layers.Dense(8))
         model.add(tf.keras.layers.Dense(units=output)) # , activation='sigmoid'
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001) # RMSprop, Adagrad, SGD, Adam
+        edited_optimizer = tf.keras.optimizers.Adam(learning_rate=0.001) # RMSprop, Adagrad, SGD, Adam
         model.compile(optimizer=edited_optimizer, loss="mae", metrics=["mean_squared_error", direction_loss, IntervalAccuracy()])
         model.summary()
         return model
@@ -561,7 +561,11 @@ class AIManager:
 
         """
         correct_direction_count = 0
-        predictions, confidences = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=True)
+        if settings.USE_MONTE_CARLO:
+            predictions, confidences = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=True)
+        else:
+            predictions = self.predict_all_values(values=values, one_hot_encoding=one_hot_encoding, monte_carlo=False)
+            confidences = np.ones((len(predictions)))
         predictions = self.scale_back_value(predictions)
         # We need to check exact values of passing confidences to calculate average.
         # If all predictions was right then confidence should be also 100% but if it is not then metric cannot exceed average of these confidences (to make model provide correct confidence)

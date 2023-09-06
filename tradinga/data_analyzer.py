@@ -357,6 +357,7 @@ class DataAnalyzer:
 
         # Statistics
         statistic_symbol = 'CVNA'
+        self.all_values = []
         self.precision_values = []
         queue = Queue()
         plot_process = Process(target=self.update_plot, args=(queue,))
@@ -506,7 +507,13 @@ class DataAnalyzer:
                 self.model_lowest_precision = precision * required_precision_coef
 
             # Statistics
-            self.precision_values.append(precision)
+            # Running 5 point avg
+            self.all_values.append(precision)
+            if len(self.all_values) < settings.RUNNING_AVG:
+                running_avg = sum(self.all_values)/len(self.all_values)
+            else:
+                running_avg = sum(self.all_values[-settings.RUNNING_AVG:])/settings.RUNNING_AVG
+            self.precision_values.append(running_avg)
             data = self.data_manager.get_symbol_data(symbol=statistic_symbol, interval=self.interval)
             scaled = self.ai_manager.scale_for_ai(data=data)
             val_metric = self.ai_manager.get_metrics_on_data(values=scaled, symbol=statistic_symbol)[0]
